@@ -108,6 +108,23 @@ const server = http.createServer((req, res) => {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '用户未找到' }));
     }
+  } else if (pathname === '/api/notedetail') {
+    // 根据推文ID查找推文
+    const noteId = query.id;
+    if (!noteId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '缺少推文ID参数' }));
+      return;
+    }
+
+    const foundNote = notes.find((note) => note.id === noteId);
+    if (foundNote) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(foundNote));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '推文未找到' }));
+    }
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
