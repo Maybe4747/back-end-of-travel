@@ -70,6 +70,7 @@ const server = http.createServer((req, res) => {
   const pathname = parsedUrl.pathname;
   const query = parsedUrl.query;
 
+  console.log('处理路径:', pathname);
   setCorsHeaders(res);
 
   if (pathname === '/api/notes') {
@@ -91,24 +92,28 @@ const server = http.createServer((req, res) => {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
+    return; // 确保结束逻辑
   } else if (pathname === '/api/user') {
-    // 根据用户ID查找用户
     const userId = query.id;
     if (!userId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '缺少用户ID参数' }));
       return;
     }
+
     const foundUser = user.find((u) => u.id === userId);
     if (foundUser) {
+      const userDetails = {
+        ...foundUser,
+        notes: notes.filter((note) => note.user_id === userId), // 返回用户的游记
+      };
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(foundUser));
+      res.end(JSON.stringify(userDetails));
     } else {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '用户未找到' }));
     }
   } else if (pathname === '/api/notedetail') {
-    // 根据推文ID查找推文
     const noteId = query.id;
     if (!noteId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -116,16 +121,29 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const foundNote = notes.find((note) => note.id === noteId);
+    const foundNote = notes.find((note) => note.id === noteId && !note.isDeleted);
     if (foundNote) {
+      // 添加评论的用户信息
+      const commentsWithUserInfo = foundNote.comments.map((comment) => {
+        const commentUser = user.find((u) => u.id === comment.user_id);
+        return {
+          ...comment,
+          user_info: commentUser ? commentUser.user_info : null,
+        };
+      });
+
+      const noteDetails = {
+        ...foundNote,
+        comments: commentsWithUserInfo,
+      };
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(foundNote));
+      res.end(JSON.stringify(noteDetails));
     } else {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '推文未找到' }));
     }
   } else if (pathname === '/api/search') {
-    // 根据关键词筛选推文
     const keyword = query.keyword?.toLowerCase();
     if (!keyword) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -134,16 +152,18 @@ const server = http.createServer((req, res) => {
     }
 
     // 根据用户昵称查找
-    const foundUser = user.find((u) => u['user-info'].nickname.toLowerCase().includes(keyword));
+    const foundUser = user.find((u) => u['user_info'].nickname.toLowerCase().includes(keyword));
     let filteredNotes = [];
 
     if (foundUser) {
       const userId = foundUser.id;
-      filteredNotes = notes.filter((note) => note.user_id === userId);
+      filteredNotes = notes.filter((note) => note.user_id === userId && !note.isDeleted);
     }
 
     // 根据游记标题查找
-    const titleFilteredNotes = notes.filter((note) => note.title.toLowerCase().includes(keyword));
+    const titleFilteredNotes = notes.filter(
+      (note) => note.title.toLowerCase().includes(keyword) && !note.isDeleted
+    );
 
     // 合并结果，去重
     const uniqueNotes = [
@@ -158,12 +178,61 @@ const server = http.createServer((req, res) => {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(uniqueNotes));
+  } else if (pathname === '/api/comment') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '仅支持POST方法' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const { noteId, userId, comment } = JSON.parse(body);
+
+        if (!noteId || !userId || !comment) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '缺少必要参数' }));
+          return;
+        }
+
+        const foundNote = notes.find((note) => note.id === noteId && !note.isDeleted);
+        if (!foundNote) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '推文未找到' }));
+          return;
+        }
+
+        const newComment = {
+          id: `comment_${Date.now()}`,
+          user_id: userId,
+          content: comment,
+          created_at: new Date().toISOString(),
+        };
+
+        foundNote.comments = foundNote.comments || [];
+        foundNote.comments.push(newComment);
+
+        writeData({ notes, user });
+
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(newComment));
+      } catch (error) {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
+        }
+      }
+    });
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   }
 });
-
 server.listen(port, () => {
   console.log(`服务器正在运行在 http://localhost:${port}`);
 });
