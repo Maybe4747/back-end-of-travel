@@ -6,14 +6,17 @@
       "password": "123456",
       "user-info": {
         "avatar": "https://picsum.photos/360/460?random=333",
-        "nickname": "张三",
+        "nickname": "lucy",
         "gender": "男",
         "birthday": "1990-01-01",
         "city": "北京",
         "signature": "热爱生活，热爱旅行",
         "follow": ["user2", "user3"],
-        "fans": ["user4", "user5"]
-      }
+        "fans": ["user4", "user5"],
+        "notes": ["post1", "post2", "post3"]
+      },
+      "createdAt": "2024-03-01T10:00:00Z",
+      "updatedAt": "2024-03-01T10:00:00Z"
     },
     {
       "id": "user2",
@@ -21,14 +24,16 @@
       "password": "123456",
       "user-info": {
         "avatar": "https://picsum.photos/360/460?random=1111",
-        "nickname": "李四",
+        "nickname": "乘风破浪",
         "gender": "女",
         "birthday": "1990-01-01",
         "city": "北京",
         "signature": "热爱生活，热爱旅行",
-        "follow": ["user1", "user3"],
+        "follow": ["user5", "user3"],
         "fans": ["user4", "user5"]
-      }
+      },
+      "createdAt": "2024-03-01T10:00:00Z",
+      "updatedAt": "2024-03-01T10:00:00Z"
     },
     {
       "id": "user3",
@@ -36,7 +41,7 @@
       "password": "123456",
       "user-info": {
         "avatar": "https://picsum.photos/360/460?random=222",
-        "nickname": "王五",
+        "nickname": "说散就散",
         "gender": "男",
         "birthday": "1990-01-01",
         "city": "北京",
@@ -44,6 +49,50 @@
         "follow": ["user1", "user2"],
         "fans": ["user4", "user5"]
       }
+    },
+    {
+      "id": "user4",
+      "name": "赵六",
+      "password": "123456",
+      "user-info": {
+        "avatar": "https://picsum.photos/360/460?random=444",
+        "nickname": "小红",
+        "gender": "女",
+        "birthday": "1990-01-01",
+        "city": "北京",
+        "signature": "热爱生活，热爱旅行",
+        "follow": ["user1", "user2"]
+      },
+      "createdAt": "2024-03-01T10:00:00Z",
+      "updatedAt": "2024-03-01T10:00:00Z"
+    },
+    {
+      "id": "user5",
+      "name": "钱七",
+      "password": "123456",
+      "user-info": {
+        "avatar": "https://picsum.photos/360/460?random=555",
+        "nickname": "平安喜乐",
+        "gender": "男",
+        "birthday": "1990-01-01",
+        "city": "北京"
+      },
+      "createdAt": "2024-03-01T10:00:00Z",
+      "updatedAt": "2024-03-01T10:00:00Z"
+    },
+    {
+      "id": "user6",
+      "name": "孙八",
+      "password": "123456",
+      "user-info": {
+        "avatar": "https://picsum.photos/360/460?random=666",
+        "nickname": "勇敢",
+        "gender": "女",
+        "birthday": "1990-01-01",
+        "city": "北京"
+      },
+      "createdAt": "2024-03-01T10:00:00Z",
+      "updatedAt": "2024-03-01T10:00:00Z"
     }
   ],
   "notes": [
@@ -57,6 +106,7 @@
         "https://picsum.photos/360/460?random=2",
         "https://picsum.photos/360/460?random=3"
       ],
+      "location": "巴厘岛",
       "status": "approved",
       "createdAt": "2024-03-01T10:00:00Z",
       "comments": [
@@ -72,7 +122,8 @@
           "content": "我也想去巴厘岛！",
           "createdAt": "2024-03-03T10:00:00Z"
         }
-      ]
+      ],
+      "isDeleted": false
     },
     {
       "id": "post2",
@@ -86,6 +137,8 @@
       ],
       "status": "approved",
       "createdAt": "2024-03-02T10:00:00Z",
+      "location": "东京",
+      "video": "https://www.w3schools.com/html/mov_bbb.mp4",
       "comments": [
         {
           "id": "comment3",
@@ -99,7 +152,8 @@
           "content": "我也想去东京！",
           "createdAt": "2024-03-04T10:00:00Z"
         }
-      ]
+      ],
+      "isDeleted": false
     },
     {
       "id": "post3",
@@ -112,6 +166,8 @@
         "https://picsum.photos/360/460?random=8",
         "https://picsum.photos/360/460?random=9"
       ],
+      "location": "东京",
+      "video": "https://www.w3schools.com/html/mov_bbb.mp4",
       "createdAt": "2024-03-02T10:00:00Z",
       "comments": [
         {
@@ -126,7 +182,8 @@
           "content": "Sushi is my favorite food!",
           "createdAt": "2024-03-04T10:00:00Z"
         }
-      ]
+      ],
+      "isDeleted": false
     },
     {
       "id": "post4",
@@ -138,6 +195,8 @@
         "https://picsum.photos/360/460?random=11",
         "https://picsum.photos/360/460?random=12"
       ],
+      "location": "东京",
+      "video": "https://www.w3schools.com/html/mov_bbb.mp4",
       "status": "approved",
       "createdAt": "2024-03-05T10:00:00Z",
       "comments": [
@@ -153,7 +212,8 @@
           "content": "Sushi is my favorite food!",
           "createdAt": "2024-03-07T10:00:00Z"
         }
-      ]
+      ],
+      "isDeleted": false
     },
     {
       "id": "post5",

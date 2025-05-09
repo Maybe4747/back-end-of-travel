@@ -99,7 +99,6 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: '缺少用户ID参数' }));
       return;
     }
-
     const foundUser = user.find((u) => u.id === userId);
     if (foundUser) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -125,6 +124,40 @@ const server = http.createServer((req, res) => {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '推文未找到' }));
     }
+  } else if (pathname === '/api/search') {
+    // 根据关键词筛选推文
+    const keyword = query.keyword?.toLowerCase();
+    if (!keyword) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '缺少关键词参数' }));
+      return;
+    }
+
+    // 根据用户昵称查找
+    const foundUser = user.find((u) => u['user-info'].nickname.toLowerCase().includes(keyword));
+    let filteredNotes = [];
+
+    if (foundUser) {
+      const userId = foundUser.id;
+      filteredNotes = notes.filter((note) => note.user_id === userId);
+    }
+
+    // 根据游记标题查找
+    const titleFilteredNotes = notes.filter((note) => note.title.toLowerCase().includes(keyword));
+
+    // 合并结果，去重
+    const uniqueNotes = [
+      ...new Map([...filteredNotes, ...titleFilteredNotes].map((note) => [note.id, note])).values(),
+    ];
+
+    if (uniqueNotes.length === 0) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '未找到匹配的结果' }));
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(uniqueNotes));
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
