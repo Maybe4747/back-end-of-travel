@@ -351,6 +351,30 @@ const server = http.createServer((req, res) => {
           }
         }
       });
+    } else if (req.method === 'GET') {
+      // 查询用户是否关注
+      const { userId, followId } = query;
+
+      console.log('查询关注状态的请求参数:', { userId, followId });
+
+      if (!userId || !followId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '缺少必要参数' }));
+        return;
+      }
+
+      const foundUser = user.find((u) => u.id === userId);
+
+      if (!foundUser) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '用户未找到' }));
+        return;
+      }
+
+      const isFollowing = foundUser.user_info.follow.includes(followId);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ isFollowing }));
     } else {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '不支持的请求方法' }));

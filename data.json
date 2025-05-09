@@ -442,16 +442,14 @@
         "city": "北京",
         "signature": "热爱生活，热爱旅行",
         "follow": [
-          "user3",
           "user6",
+          "user5",
           "user4",
-          "user1",
           "user2"
         ],
         "fans": [
           "user4",
-          "user5",
-          "user1"
+          "user5"
         ],
         "notes": [
           "post1",
