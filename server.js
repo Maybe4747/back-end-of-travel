@@ -17,7 +17,11 @@ const [notes, user] = readData();
 console.log('读取user:', user);
 // 写入数据
 function writeData(data) {
-  fs.writeFileSync(dataFilePath, JSON.stringify(data, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(dataFilePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('写入数据失败:', error);
+  }
 }
 
 // 设置CORS头信息
@@ -240,6 +244,117 @@ const server = http.createServer((req, res) => {
         }
       }
     });
+  } else if (pathname === '/api/follow') {
+    // 处理预检请求
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
+      return; // 确保结束逻辑
+    }
+
+    if (req.method === 'POST') {
+      // 关注用户
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+
+      req.on('end', () => {
+        try {
+          const { userId, followId } = JSON.parse(body);
+
+          console.log('收到的请求参数:', { userId, followId });
+
+          if (!userId || !followId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少必要参数' }));
+            return;
+          }
+
+          const foundUser = user.find((u) => u.id === userId);
+          const followUser = user.find((u) => u.id === followId);
+
+          console.log('找到的用户:', foundUser);
+          console.log('找到的关注用户:', followUser);
+
+          if (!foundUser || !followUser) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '用户未找到' }));
+            return;
+          }
+
+          if (!foundUser.user_info.follow.includes(followId)) {
+            foundUser.user_info.follow.push(followId);
+          }
+
+          if (!followUser.user_info.fans.includes(userId)) {
+            followUser.user_info.fans.push(userId);
+          }
+
+          writeData({ notes, user });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '关注成功' }));
+        } catch (error) {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
+          }
+        }
+      });
+    } else if (req.method === 'DELETE') {
+      // 取消关注
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+
+      req.on('end', () => {
+        try {
+          const { userId, followId } = JSON.parse(body);
+
+          console.log('收到的请求参数:', { userId, followId });
+
+          if (!userId || !followId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少必要参数' }));
+            return;
+          }
+
+          const foundUser = user.find((u) => u.id === userId);
+          const followUser = user.find((u) => u.id === followId);
+
+          console.log('找到的用户:', foundUser);
+          console.log('找到的关注用户:', followUser);
+
+          if (!foundUser || !followUser) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '用户未找到' }));
+            return;
+          }
+
+          foundUser.user_info.follow = foundUser.user_info.follow.filter((id) => id !== followId);
+          followUser.user_info.fans = followUser.user_info.fans.filter((id) => id !== userId);
+
+          writeData({ notes, user });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '取消关注成功' }));
+        } catch (error) {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
+          }
+        }
+      });
+    } else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
+    }
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
