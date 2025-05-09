@@ -179,10 +179,22 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(uniqueNotes));
   } else if (pathname === '/api/comment') {
+    // 处理预检请求
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
+      return; // 确保结束逻辑
+    }
+
+    // 发布评论
     if (req.method !== 'POST') {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '仅支持POST方法' }));
-      return;
+      return; // 确保结束逻辑
     }
 
     let body = '';
