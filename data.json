@@ -59,7 +59,7 @@
         "https://picsum.photos/360/460?random=5",
         "https://picsum.photos/360/460?random=6"
       ],
-      "status": "pending",
+      "status": "approved",
       "created_at": "2024-03-02T10:00:00Z",
       "location": "东京",
       "video": "https://www.w3schools.com/html/mov_bbb.mp4",
@@ -89,7 +89,8 @@
           "created_at": "2025-05-09T18:47:26.471Z"
         }
       ],
-      "is_deleted": false
+      "is_deleted": false,
+      "updated_at": "2025-05-10T18:00:47.082Z"
     },
     {
       "id": "post3",
@@ -449,11 +450,11 @@
     {
       "id": "user_1746816014433",
       "email": "user_1746816014433@example.com",
-      "name":"管理员",
+      "name": "管理员",
       "password": "admin123",
-       "user_info": {
+      "user_info": {
         "avatar": "https://picsum.photos/360/460?random=333",
-        "nickname": "admin",
+        "nickname": "admin1",
         "gender": "男",
         "birthday": "1990-01-01",
         "city": "北京",
@@ -462,18 +463,18 @@
         "fans": [],
         "notes": []
       },
-        "role": "admin",
+      "role": "admin",
       "created_at": "2024-03-01T10:00:00Z",
       "updated_at": "2024-03-01T10:00:00Z"
     },
-     {
+    {
       "id": "user_133",
       "email": "14433@example.com",
-      "name":"审核员",
+      "name": "审核员",
       "password": "reviewer123",
-       "user_info": {
+      "user_info": {
         "avatar": "https://picsum.photos/360/460?random=333",
-        "nickname": "reviewer",
+        "nickname": "reviewer1",
         "gender": "男",
         "birthday": "1990-01-01",
         "city": "北京",
@@ -482,7 +483,7 @@
         "fans": [],
         "notes": []
       },
-        "role": "reviewer",
+      "role": "reviewer",
       "created_at": "2024-03-01T10:00:00Z",
       "updated_at": "2024-03-01T10:00:00Z"
     },
@@ -518,7 +519,7 @@
     {
       "id": "user2",
       "name": "李四",
-      "email":"lisi@example.com",
+      "email": "lisi@example.com",
       "password": "123456",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=1111",
@@ -586,7 +587,7 @@
       "id": "user5",
       "name": "钱七",
       "password": "123456",
-         "email": "2@example.com",
+      "email": "2@example.com",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=555",
         "nickname": "平安喜乐",
@@ -601,7 +602,7 @@
       "id": "user6",
       "name": "孙八",
       "password": "123456",
-         "email": "3@example.com",
+      "email": "3@example.com",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=666",
         "nickname": "勇敢",

@@ -650,6 +650,7 @@ const server = http.createServer((req, res) => {
               code: 200,
               data: {
                 user_id: foundUser.id,
+                role: foundUser.role,
                 access_token: accessToken,
                 refresh_token: refreshToken,
               },
