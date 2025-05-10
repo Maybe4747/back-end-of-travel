@@ -379,6 +379,142 @@ const server = http.createServer((req, res) => {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
+  } else if (pathname === '/api/travelogues') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*', // 允许所有来源
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', // 允许的请求方法
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization', // 允许的请求头
+      });
+      res.end();
+      return; // 确保结束逻辑
+    } else if (req.method === 'GET') {
+      // 获取所有游记
+      const status = query.status;
+      let filteredTravelogues = notes.filter((note) => !note.is_deleted);
+
+      if (status) {
+        filteredTravelogues = filteredTravelogues.filter((note) => note.status === status);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(filteredTravelogues));
+    } else if (req.method === 'POST') {
+      // 批准游记
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+
+      req.on('end', () => {
+        try {
+          const { id } = JSON.parse(body);
+
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少游记ID参数' }));
+            return;
+          }
+
+          const index = notes.findIndex((note) => note.id === id);
+          if (index !== -1) {
+            notes[index].status = 'approved';
+            notes[index].updated_at = new Date().toISOString();
+            writeData({ notes, user });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: '游记已批准' }));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '游记未找到' }));
+          }
+        } catch (error) {
+          console.error('处理批准游记时发生错误:', error);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
+          }
+        }
+      });
+    } else if (req.method === 'PUT') {
+      // 拒绝游记
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+
+      req.on('end', () => {
+        try {
+          const { id, rejection_reason } = JSON.parse(body);
+
+          if (!id || !rejection_reason) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少必要参数' }));
+            return;
+          }
+
+          const index = notes.findIndex((note) => note.id === id);
+          if (index !== -1) {
+            notes[index].status = 'rejected';
+            notes[index].rejection_reason = rejection_reason;
+            notes[index].updated_at = new Date().toISOString();
+            writeData({ notes, user });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: '游记已拒绝' }));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '游记未找到' }));
+          }
+        } catch (error) {
+          console.error('处理拒绝游记时发生错误:', error);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
+          }
+        }
+      });
+    }else if (req.method === 'DELETE') {
+  // 删除游记
+  let body = '';
+  req.on('data', (chunk) => {
+    body += chunk.toString();
+  });
+
+  req.on('end', () => {
+    try {
+      const { id } = JSON.parse(body);
+
+      if (!id) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '缺少游记ID参数' }));
+        return;
+      }
+
+      const index = notes.findIndex((note) => note.id === id);
+      if (index !== -1) {
+        notes[index].is_deleted = true; // 标记为已删除
+        notes[index].updated_at = new Date().toISOString(); // 更新修改时间
+        writeData({ notes, user }); // 写入数据
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: '游记已删除' }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '游记未找到' }));
+      }
+    } catch (error) {
+      console.error('处理删除游记时发生错误:', error);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '服务器错误' }));
+      }
+    }
+  });
+} else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
+    }
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');

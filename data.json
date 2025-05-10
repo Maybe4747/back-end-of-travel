@@ -46,7 +46,8 @@
           "created_at": "2025-05-09T18:41:13.872Z"
         }
       ],
-      "isDeleted": false
+      "is_deleted": true,
+      "updated_at": "2025-05-10T13:05:10.254Z"
     },
     {
       "id": "post2",
@@ -88,7 +89,7 @@
           "created_at": "2025-05-09T18:47:26.471Z"
         }
       ],
-      "isDeleted": false
+      "is_deleted": false
     },
     {
       "id": "post3",
@@ -130,7 +131,7 @@
           "created_at": "2025-05-09T21:44:09.287Z"
         }
       ],
-      "isDeleted": false
+      "is_deleted": false
     },
     {
       "id": "post4",
@@ -166,7 +167,7 @@
           "created_at": "2025-05-09T19:00:58.399Z"
         }
       ],
-      "isDeleted": false
+      "is_deleted": false
     },
     {
       "id": "post5",
@@ -206,7 +207,8 @@
           "content": "哈哈哈",
           "created_at": "2025-05-09T18:55:43.725Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post6",
@@ -239,7 +241,8 @@
           "content": "哈哈哈",
           "created_at": "2025-05-09T19:51:47.385Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post7",
@@ -266,7 +269,8 @@
           "content": "Sushi is my favorite food!",
           "created_at": "2024-03-04T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post8",
@@ -293,7 +297,8 @@
           "content": "Sushi is my favorite food!",
           "created_at": "2024-03-07T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post9",
@@ -320,7 +325,8 @@
           "content": "我也想去巴厘岛！",
           "created_at": "2024-03-03T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post10",
@@ -347,7 +353,8 @@
           "content": "我也想去东京！",
           "created_at": "2024-03-04T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post11",
@@ -374,7 +381,8 @@
           "content": "Sushi is my favorite food!",
           "created_at": "2024-03-04T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": false
     },
     {
       "id": "post12",
@@ -386,7 +394,7 @@
         "https://picsum.photos/360/460?random=29",
         "https://picsum.photos/360/460?random=30"
       ],
-      "status": "approved",
+      "status": "rejected",
       "created_at": "2024-03-05T10:00:00Z",
       "comments": [
         {
@@ -401,7 +409,10 @@
           "content": "Sushi is my favorite food!",
           "created_at": "2024-03-07T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": false,
+      "rejection_reason": "无聊",
+      "updated_at": "2025-05-10T12:58:18.026Z"
     },
     {
       "id": "post13",
@@ -413,7 +424,8 @@
         "https://picsum.photos/360/460?random=32",
         "https://picsum.photos/360/460?random=33"
       ],
-      "status": "approved",
+      "status": "rejected",
+      "location": "巴厘岛",
       "created_at": "2024-03-01T10:00:00Z",
       "comments": [
         {
@@ -428,7 +440,9 @@
           "content": "我也想去巴厘岛！",
           "created_at": "2024-03-03T10:00:00Z"
         }
-      ]
+      ],
+      "is_deleted": true,
+      "updated_at": "2025-05-10T13:04:55.484Z"
     }
   ],
   "user": [
