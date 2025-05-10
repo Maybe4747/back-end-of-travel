@@ -2,6 +2,10 @@ const http = require('http');
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
+const SECRET_KEY = process.env.SECRET_KEY; // 替换为你的密钥
+console.log('SECRET_KEY:', SECRET_KEY);
 const port = 3001;
 
 const dataFilePath = path.join(__dirname, 'data.json');
@@ -474,48 +478,189 @@ const server = http.createServer((req, res) => {
           }
         }
       });
-    }else if (req.method === 'DELETE') {
-  // 删除游记
-  let body = '';
-  req.on('data', (chunk) => {
-    body += chunk.toString();
-  });
+    } else if (req.method === 'DELETE') {
+      // 删除游记
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
 
-  req.on('end', () => {
-    try {
-      const { id } = JSON.parse(body);
+      req.on('end', () => {
+        try {
+          const { id } = JSON.parse(body);
 
-      if (!id) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '缺少游记ID参数' }));
-        return;
-      }
+          if (!id) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少游记ID参数' }));
+            return;
+          }
 
-      const index = notes.findIndex((note) => note.id === id);
-      if (index !== -1) {
-        notes[index].is_deleted = true; // 标记为已删除
-        notes[index].updated_at = new Date().toISOString(); // 更新修改时间
-        writeData({ notes, user }); // 写入数据
+          const index = notes.findIndex((note) => note.id === id);
+          if (index !== -1) {
+            notes[index].is_deleted = true; // 标记为已删除
+            notes[index].updated_at = new Date().toISOString(); // 更新修改时间
+            writeData({ notes, user }); // 写入数据
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ message: '游记已删除' }));
-      } else {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '游记未找到' }));
-      }
-    } catch (error) {
-      console.error('处理删除游记时发生错误:', error);
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '服务器错误' }));
-      }
-    }
-  });
-} else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: '游记已删除' }));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '游记未找到' }));
+          }
+        } catch (error) {
+          console.error('处理删除游记时发生错误:', error);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
+          }
+        }
+      });
+    } else {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
+  } else if (pathname === '/api/register') {
+    // 用户注册
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+
+      req.on('end', () => {
+        try {
+          const { email, nickname, password } = JSON.parse(body);
+
+          if (!email || !nickname || !password) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少邮箱、昵称或密码' }));
+            return;
+          }
+
+          const existingUser = user.find(
+            (u) => u.user_info.nickname === nickname || u.email === email
+          );
+          if (existingUser) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '邮箱或昵称已存在' }));
+            return;
+          }
+
+          const newUser = {
+            id: `user_${Date.now()}`,
+            email,
+            password, // 注意：实际项目中应对密码进行加密存储
+            name:'',
+            user_info: {
+              avatar: `https://picsum.photos/360/460?random=${Math.floor(Math.random() * 1000)}`,
+              nickname,
+              gender: '',
+              birthday: '',
+              city: '',
+              signature: '',
+              follow: [],
+              fans: [],
+              notes: [],
+            },
+            role: 'user', // 默认角色为 user
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          user.push(newUser);
+          writeData({ notes, user });
+
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          // res.end(JSON.stringify({ message: '注册成功', user_id: newUser.id }));
+          res.end( JSON.stringify({
+              code: 200,
+              data: {
+                user_id: newUser.id
+              },
+              message: '注册成功',
+              success: true,
+            }))
+        } catch (error) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
+        }
+      });
+    } else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
+    }
+  }  else if (pathname === '/api/login') {
+  // 用户登录
+  if (req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const { nickname, password } = JSON.parse(body);
+
+        if (!nickname || !password) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ code: 400, message: '缺少昵称或密码', success: false }));
+          return;
+        }
+
+        const foundUser = user.find(
+          (u) => u.user_info.nickname === nickname && u.password === password
+        );
+
+        if (!foundUser) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ code: 401, message: '昵称或密码错误', success: false }));
+          return;
+        }
+
+        // 生成 JWT Token
+        try {
+          const accessToken = jwt.sign(
+            { userId: foundUser.id, role: foundUser.role },
+            SECRET_KEY,
+            { expiresIn: '7d' } // Access Token 有效期 7 天
+          );
+
+          const refreshToken = jwt.sign(
+            { userId: foundUser.id },
+            SECRET_KEY,
+            { expiresIn: '30d' } // Refresh Token 有效期 30 天
+          );
+
+          // 返回响应
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 200,
+              data: {
+                user_id: foundUser.id,
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              },
+              message: '操作成功',
+              success: true,
+            })
+          );
+        } catch (err) {
+          console.error('生成 Token 时出错:', err);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ code: 500, message: '生成 Token 时出错', success: false }));
+        }
+      } catch (error) {
+        console.error('解析请求体时出错:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 500, message: '服务器错误', success: false }));
+      }
+    });
   } else {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ code: 405, message: '不支持的请求方法', success: false }));
+  }
+} else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   }

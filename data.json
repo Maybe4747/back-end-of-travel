@@ -447,8 +447,49 @@
   ],
   "user": [
     {
+      "id": "user_1746816014433",
+      "email": "user_1746816014433@example.com",
+      "name":"管理员",
+      "password": "admin123",
+       "user_info": {
+        "avatar": "https://picsum.photos/360/460?random=333",
+        "nickname": "admin",
+        "gender": "男",
+        "birthday": "1990-01-01",
+        "city": "北京",
+        "signature": "热爱生活，热爱旅行",
+        "follow": [],
+        "fans": [],
+        "notes": []
+      },
+        "role": "admin",
+      "created_at": "2024-03-01T10:00:00Z",
+      "updated_at": "2024-03-01T10:00:00Z"
+    },
+     {
+      "id": "user_133",
+      "email": "14433@example.com",
+      "name":"审核员",
+      "password": "reviewer123",
+       "user_info": {
+        "avatar": "https://picsum.photos/360/460?random=333",
+        "nickname": "reviewer",
+        "gender": "男",
+        "birthday": "1990-01-01",
+        "city": "北京",
+        "signature": "热爱生活，热爱旅行",
+        "follow": [],
+        "fans": [],
+        "notes": []
+      },
+        "role": "reviewer",
+      "created_at": "2024-03-01T10:00:00Z",
+      "updated_at": "2024-03-01T10:00:00Z"
+    },
+    {
       "id": "user1",
       "name": "张三",
+      "email": "zhangsan@example.com",
       "password": "123456",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=333",
@@ -470,12 +511,14 @@
           "post3"
         ]
       },
+      "role": "admin",
       "created_at": "2024-03-01T10:00:00Z",
       "updated_at": "2024-03-01T10:00:00Z"
     },
     {
       "id": "user2",
       "name": "李四",
+      "email":"lisi@example.com",
       "password": "123456",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=1111",
@@ -500,6 +543,7 @@
     {
       "id": "user3",
       "name": "王五",
+      "email": "12346@example.com",
       "password": "123456",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=222",
@@ -522,6 +566,7 @@
       "id": "user4",
       "name": "赵六",
       "password": "123456",
+      "email": "1@example.com",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=444",
         "nickname": "小红",
@@ -541,6 +586,7 @@
       "id": "user5",
       "name": "钱七",
       "password": "123456",
+         "email": "2@example.com",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=555",
         "nickname": "平安喜乐",
@@ -555,6 +601,7 @@
       "id": "user6",
       "name": "孙八",
       "password": "123456",
+         "email": "3@example.com",
       "user_info": {
         "avatar": "https://picsum.photos/360/460?random=666",
         "nickname": "勇敢",
@@ -564,6 +611,44 @@
       },
       "created_at": "2024-03-01T10:00:00Z",
       "updated_at": "2024-03-01T10:00:00Z"
+    },
+    {
+      "id": "user_1746894798300",
+      "email": "123@qq.com",
+      "password": "123456",
+      "user_info": {
+        "avatar": "https://picsum.photos/360/460?random=714",
+        "nickname": "hahah",
+        "gender": "",
+        "birthday": "",
+        "city": "",
+        "signature": "",
+        "follow": [],
+        "fans": [],
+        "notes": []
+      },
+      "role": "user",
+      "created_at": "2025-05-10T16:33:18.300Z",
+      "updated_at": "2025-05-10T16:33:18.300Z"
+    },
+    {
+      "id": "user_1746895063208",
+      "email": "1213@qq.com",
+      "password": "123456",
+      "user_info": {
+        "avatar": "https://picsum.photos/360/460?random=151",
+        "nickname": "111ahah",
+        "gender": "",
+        "birthday": "",
+        "city": "",
+        "signature": "",
+        "follow": [],
+        "fans": [],
+        "notes": []
+      },
+      "role": "user",
+      "created_at": "2025-05-10T16:37:43.208Z",
+      "updated_at": "2025-05-10T16:37:43.208Z"
     }
   ]
 }
