@@ -520,6 +520,12 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
   } else if (pathname === '/api/register') {
+    if (req.method === 'OPTIONS') {
+  setCorsHeaders(res);
+  res.writeHead(204); // No Content
+  res.end();
+  return; // 确保结束逻辑
+}
     // 用户注册
     if (req.method === 'POST') {
       let body = '';
@@ -590,6 +596,12 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
   }  else if (pathname === '/api/login') {
+    if (req.method === 'OPTIONS') {
+  setCorsHeaders(res);
+  res.writeHead(204); // No Content
+  res.end();
+  return; // 确保结束逻辑
+}
   // 用户登录
   if (req.method === 'POST') {
     let body = '';
