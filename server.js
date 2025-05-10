@@ -30,10 +30,10 @@ function writeData(data) {
 
 // 设置CORS头信息
 function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*'); // 允许所有来源
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE'); // 允许的请求方法
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization'); // 允许的请求头
+  res.setHeader('Access-Control-Allow-Credentials', true); // 允许携带凭据
 }
 
 // 过滤游记
