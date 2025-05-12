@@ -135,23 +135,49 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: "用户未找到" }));
       }
     } else if (req.method === "PUT") {
-      // 处理用户信息更新
+      // 处理用户信息更新或密码修改
       let body = "";
       req.on("data", (chunk) => {
         body += chunk.toString();
       });
       req.on("end", () => {
         try {
-          const { id, user_info } = JSON.parse(body);
-          if (!id || !user_info) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少用户ID或更新内容" }));
-            return;
-          }
+          const { id, user_info, oldPassword, newPassword } = JSON.parse(body);
+          console.log("收到PUT /api/user参数：", {
+            id,
+            user_info,
+            oldPassword,
+            newPassword,
+          });
           const foundUser = user.find((u) => u.id === id);
           if (!foundUser) {
             res.writeHead(404, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "用户未找到" }));
+            return;
+          }
+          // 如果有 oldPassword 和 newPassword 字段，则为修改密码
+          if (
+            typeof oldPassword === "string" &&
+            typeof newPassword === "string" &&
+            oldPassword.length > 0 &&
+            newPassword.length > 0
+          ) {
+            if (foundUser.password !== oldPassword) {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "原密码错误" }));
+              return;
+            }
+            foundUser.password = newPassword;
+            foundUser.updated_at = new Date().toISOString();
+            writeData({ notes, user });
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: true, message: "密码修改成功" }));
+            return;
+          }
+          // 否则为普通信息更新
+          if (!id || !user_info) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "缺少用户ID或更新内容" }));
             return;
           }
           foundUser.user_info = { ...foundUser.user_info, ...user_info };
