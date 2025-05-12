@@ -90,25 +90,55 @@ const server = http.createServer((req, res) => {
   setCorsHeaders(res);
 
   if (pathname === "/api/notes") {
-    let filteredNotes = filterNotesByStatus(notes, query.status);
+    if (req.method === "GET") {
+      let filteredNotes = filterNotesByStatus(notes, query.status);
+      let result;
+      if (query.type === "cursor") {
+        const cursor = query.cursor || null;
+        const limit = parseInt(query.limit) || 5;
+        result = paginateByCursor(filteredNotes, cursor, limit);
+      } else if (query.type === "page") {
+        const page = parseInt(query.page) || 1;
+        const limit = parseInt(query.limit) || 5;
+        result = paginateByPage(filteredNotes, page, limit);
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    } else if (req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk.toString();
+      });
+      req.on("end", () => {
+        try {
+          console.log("收到前端POST数据：准备解析body");
+          const note = JSON.parse(body);
+          console.log("收到前端POST数据：", note);
+          // 确保 note 有必要的字段
+          if (!note.id || !note.user_id || !note.title || !note.content) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "缺少必要的游记信息" }));
+            return;
+          }
 
-    // 支持两种分页方式
-    let result;
-    if (query.type === "cursor") {
-      // 游标分页
-      const cursor = query.cursor || null;
-      const limit = parseInt(query.limit) || 5;
-      result = paginateByCursor(filteredNotes, cursor, limit);
-    } else if (query.type === "page") {
-      // 页码分页
-      const page = parseInt(query.page) || 1;
-      const limit = parseInt(query.limit) || 5;
-      result = paginateByPage(filteredNotes, page, limit);
+          // 添加到 notes 数组
+          notes.push(note);
+          // 保存到文件
+          writeData({ notes, user });
+          console.log("添加游记成功：", note);
+
+          // 返回成功响应
+          res.writeHead(201, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(note));
+        } catch (error) {
+          console.error("解析POST数据失败", error);
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "无效的请求数据" }));
+        }
+      });
+      return;
     }
-
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(result));
-    return; // 确保结束逻辑
   } else if (pathname === "/api/user") {
     if (req.method === "OPTIONS") {
       setCorsHeaders(res);
