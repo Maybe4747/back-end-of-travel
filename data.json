@@ -648,6 +648,24 @@
       "role": "user",
       "created_at": "2025-05-10T16:37:43.208Z",
       "updated_at": "2025-05-10T16:37:43.208Z"
+    },
+    {
+      "id": "user110",
+      "password": "111111",
+      "user_info": {
+        "avatar": "",
+        "nickname": "",
+        "gender": "",
+        "birthday": "",
+        "city": "",
+        "signature": "",
+        "follow": [],
+        "fans": []
+      },
+      "favorite": [],
+      "name": "user110",
+      "created_at": "2025-05-12T12:46:48.261Z",
+      "updated_at": "2025-05-12T12:46:48.262Z"
     }
   ]
 }

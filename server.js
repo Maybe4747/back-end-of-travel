@@ -145,6 +145,37 @@ const server = http.createServer((req, res) => {
       res.writeHead(204); // No Content
       res.end();
       return;
+    } else if (req.method === "POST") {
+      // 注册新用户
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk.toString();
+      });
+      req.on("end", () => {
+        try {
+          const newUser = JSON.parse(body);
+          if (!newUser.id || !newUser.password) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "缺少账号或密码" }));
+            return;
+          }
+          if (user.find((u) => u.id === newUser.id)) {
+            res.writeHead(409, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "账号已存在" }));
+            return;
+          }
+          newUser.created_at = new Date().toISOString();
+          newUser.updated_at = new Date().toISOString();
+          user.push(newUser);
+          writeData({ notes, user });
+          res.writeHead(201, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(newUser));
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "服务器错误" }));
+        }
+      });
+      return;
     } else if (req.method === "GET") {
       const userId = query.id;
       if (!userId) {
