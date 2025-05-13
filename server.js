@@ -3,6 +3,9 @@ import url from 'url';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { MongoClient, ObjectId } from 'mongodb';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -12,6 +15,71 @@ const client = new MongoClient(uri);
 
 // 全局数据库变量
 let db;
+
+// 配置文件上传
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // 根据文件类型选择不同的存储目录
+    const fileType = file.mimetype.startsWith('image/') ? 'images' : 'videos';
+    const uploadDir = path.join(process.cwd(), 'uploads', fileType);
+
+    // 确保目录存在
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // 生成文件名：时间戳 + 随机数 + 原始扩展名
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+// 文件过滤器
+const fileFilter = (req, file, cb) => {
+  // 允许的图片类型
+  const allowedImageTypes = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+  ];
+  // 允许的视频类型
+  const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg'];
+
+  if (
+    file.mimetype.startsWith('image/') &&
+    allowedImageTypes.includes(file.mimetype)
+  ) {
+    cb(null, true);
+  } else if (
+    file.mimetype.startsWith('video/') &&
+    allowedVideoTypes.includes(file.mimetype)
+  ) {
+    // 检查是否已经上传了视频文件
+    const videoCount = req.files
+      ? req.files.filter((f) => f.mimetype.startsWith('video/')).length
+      : 0;
+    if (videoCount >= 1) {
+      cb(new Error('只能上传一个视频文件'), false);
+      return;
+    }
+    cb(null, true);
+  } else {
+    cb(new Error('不支持的文件类型'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 限制文件大小为 50MB
+    files: 10, // 最多10个文件
+  },
+});
 
 async function connect() {
   try {
@@ -102,7 +170,6 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Credentials', true); // 允许携带凭据
 }
 
-
 // 页码分页
 function paginateByPage(notes, page, limit) {
   const startIndex = (page - 1) * limit;
@@ -125,6 +192,185 @@ const server = http.createServer(async (req, res) => {
 
   console.log('处理路径:', pathname);
   setCorsHeaders(res);
+
+  // 处理文件上传
+  if (pathname === '/api/upload') {
+    if (req.method === 'OPTIONS') {
+      setCorsHeaders(res);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '只支持 POST 请求' }));
+      return;
+    }
+
+    // 验证 token
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 401,
+          message: '未提供认证token',
+          success: false,
+        })
+      );
+      return;
+    }
+
+    try {
+      const token = authHeader.split(' ')[1]; // Bearer token
+      const decoded = jwt.verify(token, SECRET_KEY);
+
+      // 使用 multer 处理文件上传
+      upload.array('files', 10)(req, res, async (err) => {
+        if (err) {
+          console.error('文件上传错误:', err);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 400,
+              message: err.message,
+              success: false,
+            })
+          );
+          return;
+        }
+
+        try {
+          const files = req.files;
+          if (!files || files.length === 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 400,
+                message: '没有上传文件',
+                success: false,
+              })
+            );
+            return;
+          }
+
+          // 检查视频文件数量
+          const videoCount = files.filter((file) =>
+            file.mimetype.startsWith('video/')
+          ).length;
+          if (videoCount > 1) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 400,
+                message: '只能上传一个视频文件',
+                success: false,
+              })
+            );
+            return;
+          }
+
+          // 处理上传的文件
+          const uploadedFiles = await Promise.all(
+            files.map(async (file) => {
+              // 构建文件信息
+              const fileInfo = {
+                filename: file.filename,
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                size: file.size,
+                path: file.path.replace(process.cwd(), '').replace(/\\/g, '/'),
+                type: file.mimetype.startsWith('image/') ? 'image' : 'video',
+                user_id: decoded.userId,
+                url: `http://localhost:${port}${file.path
+                  .replace(process.cwd(), '')
+                  .replace(/\\/g, '/')}`,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+
+              // 存储到数据库
+              try {
+                const result = await db.collection('files').insertOne(fileInfo);
+                return {
+                  ...fileInfo,
+                  _id: result.insertedId,
+                };
+              } catch (error) {
+                console.error('存储文件信息失败:', error);
+                throw error;
+              }
+            })
+          );
+
+          // 返回上传结果
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 200,
+              message: '文件上传成功',
+              success: true,
+              data: {
+                files: uploadedFiles,
+              },
+            })
+          );
+        } catch (error) {
+          console.error('处理上传文件时出错:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 500,
+              message: '服务器错误',
+              success: false,
+            })
+          );
+        }
+      });
+    } catch (error) {
+      console.error('Token验证失败:', error);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 401,
+          message: '无效的token',
+          success: false,
+        })
+      );
+    }
+    return;
+  }
+
+  // 添加静态文件服务
+  if (pathname.startsWith('/uploads/')) {
+    const filePath = path.join(process.cwd(), pathname);
+
+    // 检查文件是否存在
+    if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
+
+      // 设置响应头
+      res.writeHead(200, {
+        'Content-Type': getContentType(filePath),
+        'Content-Length': stat.size,
+      });
+
+      // 创建文件读取流
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 404,
+          message: '文件不存在',
+          success: false,
+        })
+      );
+    }
+    return;
+  }
 
   if (pathname === '/api/notes') {
     try {
@@ -726,25 +972,34 @@ const server = http.createServer(async (req, res) => {
   } else if (pathname === '/api/travelogues') {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*', // 允许所有来源
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', // 允许的请求方法
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization', // 允许的请求头
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       });
       res.end();
-      return; // 确保结束逻辑
+      return;
     } else if (req.method === 'GET') {
-      // 获取所有游记
-      const status = query.status;
-      let filteredTravelogues = notes.filter((note) => !note.is_deleted);
+      try {
+        // 获取所有游记
+        const status = parsedUrl.query.status;
+        let mongoQuery = { is_deleted: { $ne: true } };
 
-      if (status) {
-        filteredTravelogues = filteredTravelogues.filter(
-          (note) => note.status === status
-        );
+        if (status) {
+          mongoQuery.status = status;
+        }
+
+        const travelogues = await db
+          .collection('notes')
+          .find(mongoQuery)
+          .toArray();
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(travelogues));
+      } catch (error) {
+        console.error('获取游记列表失败:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '服务器错误' }));
       }
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(filteredTravelogues));
     } else if (req.method === 'POST') {
       // 批准游记
       let body = '';
@@ -752,7 +1007,7 @@ const server = http.createServer(async (req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { id } = JSON.parse(body);
 
@@ -762,24 +1017,28 @@ const server = http.createServer(async (req, res) => {
             return;
           }
 
-          const index = notes.findIndex((note) => note.id === id);
-          if (index !== -1) {
-            notes[index].status = 'approved';
-            notes[index].updated_at = new Date().toISOString();
-            writeData({ notes, user });
+          const result = await db.collection('notes').updateOne(
+            { id: id },
+            {
+              $set: {
+                status: 'approved',
+                updated_at: new Date().toISOString(),
+              },
+            }
+          );
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: '游记已批准' }));
-          } else {
+          if (result.matchedCount === 0) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: '游记未找到' }));
+            return;
           }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '游记已批准' }));
         } catch (error) {
           console.error('处理批准游记时发生错误:', error);
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: '服务器错误' }));
-          }
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
         }
       });
     } else if (req.method === 'PUT') {
@@ -789,7 +1048,7 @@ const server = http.createServer(async (req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { id, rejection_reason } = JSON.parse(body);
 
@@ -799,25 +1058,29 @@ const server = http.createServer(async (req, res) => {
             return;
           }
 
-          const index = notes.findIndex((note) => note.id === id);
-          if (index !== -1) {
-            notes[index].status = 'rejected';
-            notes[index].rejection_reason = rejection_reason;
-            notes[index].updated_at = new Date().toISOString();
-            writeData({ notes, user });
+          const result = await db.collection('notes').updateOne(
+            { id: id },
+            {
+              $set: {
+                status: 'rejected',
+                rejection_reason: rejection_reason,
+                updated_at: new Date().toISOString(),
+              },
+            }
+          );
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: '游记已拒绝' }));
-          } else {
+          if (result.matchedCount === 0) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: '游记未找到' }));
+            return;
           }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '游记已拒绝' }));
         } catch (error) {
           console.error('处理拒绝游记时发生错误:', error);
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: '服务器错误' }));
-          }
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
         }
       });
     } else if (req.method === 'DELETE') {
@@ -827,7 +1090,7 @@ const server = http.createServer(async (req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { id } = JSON.parse(body);
 
@@ -837,24 +1100,28 @@ const server = http.createServer(async (req, res) => {
             return;
           }
 
-          const index = notes.findIndex((note) => note.id === id);
-          if (index !== -1) {
-            notes[index].is_deleted = true; // 标记为已删除
-            notes[index].updated_at = new Date().toISOString(); // 更新修改时间
-            writeData({ notes, user }); // 写入数据
+          const result = await db.collection('notes').updateOne(
+            { id: id },
+            {
+              $set: {
+                is_deleted: true,
+                updated_at: new Date().toISOString(),
+              },
+            }
+          );
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: '游记已删除' }));
-          } else {
+          if (result.matchedCount === 0) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: '游记未找到' }));
+            return;
           }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '游记已删除' }));
         } catch (error) {
           console.error('处理删除游记时发生错误:', error);
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: '服务器错误' }));
-          }
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
         }
       });
     } else {
@@ -875,7 +1142,7 @@ const server = http.createServer(async (req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { email, nickname, password } = JSON.parse(body);
 
@@ -885,9 +1152,11 @@ const server = http.createServer(async (req, res) => {
             return;
           }
 
-          const existingUser = user.find(
-            (u) => u.user_info.nickname === nickname || u.email === email
-          );
+          // 检查用户是否已存在
+          const existingUser = await db.collection('users').findOne({
+            $or: [{ 'user_info.nickname': nickname }, { email: email }],
+          });
+
           if (existingUser) {
             res.writeHead(409, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: '邮箱或昵称已存在' }));
@@ -897,7 +1166,7 @@ const server = http.createServer(async (req, res) => {
           const newUser = {
             id: `user_${Date.now()}`,
             email,
-            password, // 注意：实际项目中应对密码进行加密存储
+            password,
             name: '',
             user_info: {
               avatar: `https://picsum.photos/360/460?random=${Math.floor(
@@ -917,11 +1186,10 @@ const server = http.createServer(async (req, res) => {
             updated_at: new Date().toISOString(),
           };
 
-          user.push(newUser);
-          writeData({ notes, user });
+          // 写入MongoDB
+          await db.collection('users').insertOne(newUser);
 
           res.writeHead(201, { 'Content-Type': 'application/json' });
-          // res.end(JSON.stringify({ message: '注册成功', user_id: newUser.id }));
           res.end(
             JSON.stringify({
               code: 200,
@@ -933,6 +1201,7 @@ const server = http.createServer(async (req, res) => {
             })
           );
         } catch (error) {
+          console.error('注册用户失败:', error);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: '服务器错误' }));
         }
@@ -946,7 +1215,7 @@ const server = http.createServer(async (req, res) => {
       setCorsHeaders(res);
       res.writeHead(204); // No Content
       res.end();
-      return; // 确保结束逻辑
+      return;
     }
     // 用户登录
     if (req.method === 'POST') {
@@ -955,7 +1224,7 @@ const server = http.createServer(async (req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { nickname, password } = JSON.parse(body);
 
@@ -971,9 +1240,11 @@ const server = http.createServer(async (req, res) => {
             return;
           }
 
-          const foundUser = user.find(
-            (u) => u.user_info.nickname === nickname && u.password === password
-          );
+          // 从数据库查找用户
+          const foundUser = await db.collection('users').findOne({
+            'user_info.nickname': nickname,
+            password: password,
+          });
 
           if (!foundUser) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -1031,7 +1302,11 @@ const server = http.createServer(async (req, res) => {
           console.error('解析请求体时出错:', error);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(
-            JSON.stringify({ code: 500, message: '服务器错误', success: false })
+            JSON.stringify({
+              code: 500,
+              message: '服务器错误',
+              success: false,
+            })
           );
         }
       });
@@ -1050,6 +1325,22 @@ const server = http.createServer(async (req, res) => {
     res.end('Not Found');
   }
 });
+
+// 获取文件类型
+function getContentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentTypes = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.ogg': 'video/ogg',
+  };
+  return contentTypes[ext] || 'application/octet-stream';
+}
 
 // 初始化并启动服务器
 initialize()
