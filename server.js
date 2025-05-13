@@ -2,7 +2,7 @@ import http from 'http';
 import url from 'url';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 dotenv.config();
 
@@ -84,7 +84,7 @@ async function writeData(data) {
       await db.collection('users').insertMany(data.user);
     }
   } catch (error) {
-    console.error("写入数据失败:", error);
+    console.error('写入数据失败:', error);
   }
 }
 
@@ -102,10 +102,6 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Credentials', true); // 允许携带凭据
 }
 
-// 过滤游记
-function filterNotesByStatus(notes, status) {
-  return status ? notes.filter((note) => note.status === status) : notes;
-}
 
 // 页码分页
 function paginateByPage(notes, page, limit) {
@@ -122,41 +118,31 @@ function paginateByPage(notes, page, limit) {
   };
 }
 
-// 游标分页
-function paginateByCursor(notes, cursor, limit) {
-  const noteIndexMap = new Map(notes.map((note, index) => [note.id, index]));
-  const startIndex = cursor ? noteIndexMap.get(cursor) + 1 : 0;
-  const paginatedNotes = notes.slice(startIndex, startIndex + limit);
-  const nextCursor =
-    startIndex + limit < notes.length
-      ? paginatedNotes[paginatedNotes.length - 1]?.id
-      : null;
-
-  return {
-    data: paginatedNotes,
-    nextCursor,
-    hasMore: nextCursor !== null,
-    total: notes.length,
-    currentPageSize: paginatedNotes.length,
-  };
-}
-
 const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
   const query = parsedUrl.query;
 
-  console.log("处理路径:", pathname);
+  console.log('处理路径:', pathname);
   setCorsHeaders(res);
 
   if (pathname === '/api/notes') {
     try {
-      let query = {};
+      let query = {
+        is_deleted: false,
+        status: 'approved',
+      };
       if (parsedUrl.query.status) {
         query.status = parsedUrl.query.status;
       }
 
-      let filteredNotes = await db.collection('notes').find(query).toArray();
+      console.log('查询条件:', query);
+      console.log('分页参数:', {
+        type: parsedUrl.query.type,
+        page: parsedUrl.query.page,
+        limit: parsedUrl.query.limit,
+        cursor: parsedUrl.query.cursor,
+      });
 
       // 支持两种分页方式
       let result;
@@ -164,42 +150,85 @@ const server = http.createServer(async (req, res) => {
         // 游标分页
         const cursor = parsedUrl.query.cursor || null;
         const limit = parseInt(parsedUrl.query.limit) || 5;
-        const noteIndexMap = new Map(
-          filteredNotes.map((note, index) => [note.id, index])
-        );
-        const startIndex = cursor ? noteIndexMap.get(cursor) + 1 : 0;
-        const paginatedNotes = filteredNotes.slice(
-          startIndex,
-          startIndex + limit
-        );
+
+        // 构建查询条件
+        let findQuery = { ...query };
+        if (cursor) {
+          findQuery._id = { $gt: new ObjectId(cursor) };
+        }
+
+        console.log('游标分页查询条件:', findQuery);
+
+        // 使用 MongoDB 的 skip 和 limit
+        const paginatedNotes = await db
+          .collection('notes')
+          .find(findQuery)
+          .sort({ _id: 1 })
+          .limit(limit)
+          .toArray();
+
+        console.log('游标分页查询结果:', {
+          数据条数: paginatedNotes.length,
+          第一条数据: paginatedNotes[0],
+          最后一条数据: paginatedNotes[paginatedNotes.length - 1],
+        });
+
+        const total = await db.collection('notes').countDocuments(query);
         const nextCursor =
-          startIndex + limit < filteredNotes.length
-            ? paginatedNotes[paginatedNotes.length - 1]?.id
+          paginatedNotes.length > 0
+            ? paginatedNotes[paginatedNotes.length - 1]._id.toString()
             : null;
 
         result = {
           data: paginatedNotes,
           nextCursor,
           hasMore: nextCursor !== null,
-          total: filteredNotes.length,
+          total,
           currentPageSize: paginatedNotes.length,
         };
       } else {
         // 页码分页
         const page = parseInt(parsedUrl.query.page) || 1;
         const limit = parseInt(parsedUrl.query.limit) || 5;
-        const startIndex = (page - 1) * limit;
-        const endIndex = page * limit;
-        const paginatedNotes = filteredNotes.slice(startIndex, endIndex);
+        const skip = (page - 1) * limit;
+
+        console.log('页码分页参数:', { page, limit, skip });
+
+        // 使用 MongoDB 的 skip 和 limit
+        const paginatedNotes = await db
+          .collection('notes')
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        console.log('页码分页查询结果:', {
+          数据条数: paginatedNotes.length,
+          第一条数据: paginatedNotes[0],
+          最后一条数据: paginatedNotes[paginatedNotes.length - 1],
+        });
+
+        const total = await db.collection('notes').countDocuments(query);
+        console.log('总记录数:', total);
 
         result = {
           data: paginatedNotes,
           currentPage: page,
-          totalPages: Math.ceil(filteredNotes.length / limit),
-          totalItems: filteredNotes.length,
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
           itemsPerPage: limit,
         };
       }
+
+      console.log('返回结果:', {
+        数据条数: result.data.length,
+        分页信息: {
+          currentPage: result.currentPage,
+          totalPages: result.totalPages,
+          totalItems: result.totalItems,
+          itemsPerPage: result.itemsPerPage,
+        },
+      });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
@@ -210,36 +239,165 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   } else if (pathname === '/api/user') {
-    try {
-      const userId = parsedUrl.query.id;
-      if (!userId) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '缺少用户ID参数' }));
-        return;
-      }
+    if (req.method === 'OPTIONS') {
+      setCorsHeaders(res);
+      res.writeHead(204); // No Content
+      res.end();
+      return;
+    } else if (req.method === 'POST') {
+      // 注册新用户
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+      req.on('end', async () => {
+        try {
+          const newUser = JSON.parse(body);
+          if (!newUser.id || !newUser.password) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少账号或密码' }));
+            return;
+          }
 
-      const foundUser = await db.collection('users').findOne({ id: userId });
-      if (foundUser) {
-        const userNotes = await db
-          .collection('notes')
-          .find({ user_id: userId })
-          .toArray();
-        const userDetails = {
-          ...foundUser,
-          notes: userNotes,
-        };
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(userDetails));
-      } else {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '用户未找到' }));
+          // 检查用户是否已存在
+          const existingUser = await db
+            .collection('users')
+            .findOne({ id: newUser.id });
+          if (existingUser) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '账号已存在' }));
+            return;
+          }
+
+          newUser.created_at = new Date().toISOString();
+          newUser.updated_at = new Date().toISOString();
+
+          // 写入MongoDB
+          await db.collection('users').insertOne(newUser);
+
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(newUser));
+        } catch (error) {
+          console.error('注册用户失败:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
+        }
+      });
+      return;
+    } else if (req.method === 'GET') {
+      try {
+        const userId = query.id;
+        if (!userId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '缺少用户ID参数' }));
+          return;
+        }
+
+        const foundUser = await db.collection('users').findOne({ id: userId });
+        if (foundUser) {
+          // 获取用户的笔记
+          const userNotes = await db
+            .collection('notes')
+            .find({ user_id: userId })
+            .toArray();
+          const userDetails = {
+            ...foundUser,
+            notes: userNotes,
+          };
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(userDetails));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '用户未找到' }));
+        }
+      } catch (error) {
+        console.error('获取用户信息失败:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '服务器错误' }));
       }
-    } catch (error) {
-      console.error('获取用户信息失败:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '服务器错误' }));
+    } else if (req.method === 'PUT') {
+      // 处理用户信息更新或密码修改
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
+      req.on('end', async () => {
+        try {
+          const { id, user_info, oldPassword, newPassword } = JSON.parse(body);
+          console.log('收到PUT /api/user参数：', {
+            id,
+            user_info,
+            oldPassword,
+            newPassword,
+          });
+
+          const foundUser = await db.collection('users').findOne({ id: id });
+          if (!foundUser) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '用户未找到' }));
+            return;
+          }
+
+          // 如果有 oldPassword 和 newPassword 字段，则为修改密码
+          if (
+            typeof oldPassword === 'string' &&
+            typeof newPassword === 'string' &&
+            oldPassword.length > 0 &&
+            newPassword.length > 0
+          ) {
+            if (foundUser.password !== oldPassword) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: '原密码错误' }));
+              return;
+            }
+
+            // 更新密码
+            await db.collection('users').updateOne(
+              { id: id },
+              {
+                $set: {
+                  password: newPassword,
+                  updated_at: new Date().toISOString(),
+                },
+              }
+            );
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: '密码修改成功' }));
+            return;
+          }
+
+          // 否则为普通信息更新
+          if (!id || !user_info) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少用户ID或更新内容' }));
+            return;
+          }
+
+          // 更新用户信息
+          const updatedUser = await db.collection('users').findOneAndUpdate(
+            { id: id },
+            {
+              $set: {
+                user_info: { ...foundUser.user_info, ...user_info },
+                updated_at: new Date().toISOString(),
+              },
+            },
+            { returnDocument: 'after' }
+          );
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updatedUser.value));
+        } catch (error) {
+          console.error('更新用户信息失败:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
+        }
+      });
+    } else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
-    return;
   } else if (pathname === '/api/notedetail') {
     try {
       const noteId = parsedUrl.query.id;
@@ -347,11 +505,11 @@ const server = http.createServer(async (req, res) => {
     return;
   } else if (pathname === '/api/comment') {
     // 处理预检请求
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       });
       res.end();
       return;
@@ -364,8 +522,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    let body = "";
-    req.on("data", (chunk) => {
+    let body = '';
+    req.on('data', (chunk) => {
       body += chunk.toString();
     });
 
@@ -374,8 +532,8 @@ const server = http.createServer(async (req, res) => {
         const { noteId, userId, comment } = JSON.parse(body);
 
         if (!noteId || !userId || !comment) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "缺少必要参数" }));
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '缺少必要参数' }));
           return;
         }
 
@@ -383,8 +541,8 @@ const server = http.createServer(async (req, res) => {
           .collection('notes')
           .findOne({ id: noteId, is_deleted: { $ne: true } });
         if (!foundNote) {
-          res.writeHead(404, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "推文未找到" }));
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '推文未找到' }));
           return;
         }
 
@@ -399,32 +557,32 @@ const server = http.createServer(async (req, res) => {
           .collection('notes')
           .updateOne({ id: noteId }, { $push: { comments: newComment } });
 
-        res.writeHead(201, { "Content-Type": "application/json" });
+        res.writeHead(201, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(newComment));
       } catch (error) {
         console.error('发布评论失败:', error);
         if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "服务器错误" }));
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
         }
       }
     });
-  } else if (pathname === "/api/follow") {
+  } else if (pathname === '/api/follow') {
     // 处理预检请求
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       });
       res.end();
       return;
     }
 
-    if (req.method === "POST") {
+    if (req.method === 'POST') {
       // 关注用户
-      let body = "";
-      req.on("data", (chunk) => {
+      let body = '';
+      req.on('data', (chunk) => {
         body += chunk.toString();
       });
 
@@ -433,8 +591,8 @@ const server = http.createServer(async (req, res) => {
           const { userId, followId } = JSON.parse(body);
 
           if (!userId || !followId) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少必要参数" }));
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少必要参数' }));
             return;
           }
 
@@ -446,8 +604,8 @@ const server = http.createServer(async (req, res) => {
             .findOne({ id: followId });
 
           if (!foundUser || !followUser) {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "用户未找到" }));
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '用户未找到' }));
             return;
           }
 
@@ -467,20 +625,20 @@ const server = http.createServer(async (req, res) => {
               { $addToSet: { 'user_info.fans': userId } }
             );
 
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ message: "关注成功" }));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '关注成功' }));
         } catch (error) {
           console.error('关注用户失败:', error);
           if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "服务器错误" }));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
           }
         }
       });
-    } else if (req.method === "DELETE") {
+    } else if (req.method === 'DELETE') {
       // 取消关注
-      let body = "";
-      req.on("data", (chunk) => {
+      let body = '';
+      req.on('data', (chunk) => {
         body += chunk.toString();
       });
 
@@ -489,8 +647,8 @@ const server = http.createServer(async (req, res) => {
           const { userId, followId } = JSON.parse(body);
 
           if (!userId || !followId) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少必要参数" }));
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少必要参数' }));
             return;
           }
 
@@ -502,8 +660,8 @@ const server = http.createServer(async (req, res) => {
             .findOne({ id: followId });
 
           if (!foundUser || !followUser) {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "用户未找到" }));
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '用户未找到' }));
             return;
           }
 
@@ -523,17 +681,17 @@ const server = http.createServer(async (req, res) => {
               { $pull: { 'user_info.fans': userId } }
             );
 
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ message: "取消关注成功" }));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: '取消关注成功' }));
         } catch (error) {
           console.error('取消关注失败:', error);
           if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "服务器错误" }));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
           }
         }
       });
-    } else if (req.method === "GET") {
+    } else if (req.method === 'GET') {
       // 查询用户是否关注
       try {
         const { userId, followId } = parsedUrl.query;
@@ -562,19 +720,19 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: '服务器错误' }));
       }
     } else {
-      res.writeHead(405, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "不支持的请求方法" }));
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
-  } else if (pathname === "/api/travelogues") {
-    if (req.method === "OPTIONS") {
+  } else if (pathname === '/api/travelogues') {
+    if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*", // 允许所有来源
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", // 允许的请求方法
-        "Access-Control-Allow-Headers": "Content-Type, Authorization", // 允许的请求头
+        'Access-Control-Allow-Origin': '*', // 允许所有来源
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', // 允许的请求方法
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization', // 允许的请求头
       });
       res.end();
       return; // 确保结束逻辑
-    } else if (req.method === "GET") {
+    } else if (req.method === 'GET') {
       // 获取所有游记
       const status = query.status;
       let filteredTravelogues = notes.filter((note) => !note.is_deleted);
@@ -585,97 +743,97 @@ const server = http.createServer(async (req, res) => {
         );
       }
 
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(filteredTravelogues));
-    } else if (req.method === "POST") {
+    } else if (req.method === 'POST') {
       // 批准游记
-      let body = "";
-      req.on("data", (chunk) => {
+      let body = '';
+      req.on('data', (chunk) => {
         body += chunk.toString();
       });
 
-      req.on("end", () => {
+      req.on('end', () => {
         try {
           const { id } = JSON.parse(body);
 
           if (!id) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少游记ID参数" }));
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少游记ID参数' }));
             return;
           }
 
           const index = notes.findIndex((note) => note.id === id);
           if (index !== -1) {
-            notes[index].status = "approved";
+            notes[index].status = 'approved';
             notes[index].updated_at = new Date().toISOString();
             writeData({ notes, user });
 
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ message: "游记已批准" }));
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: '游记已批准' }));
           } else {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "游记未找到" }));
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '游记未找到' }));
           }
         } catch (error) {
-          console.error("处理批准游记时发生错误:", error);
+          console.error('处理批准游记时发生错误:', error);
           if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "服务器错误" }));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
           }
         }
       });
-    } else if (req.method === "PUT") {
+    } else if (req.method === 'PUT') {
       // 拒绝游记
-      let body = "";
-      req.on("data", (chunk) => {
+      let body = '';
+      req.on('data', (chunk) => {
         body += chunk.toString();
       });
 
-      req.on("end", () => {
+      req.on('end', () => {
         try {
           const { id, rejection_reason } = JSON.parse(body);
 
           if (!id || !rejection_reason) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少必要参数" }));
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少必要参数' }));
             return;
           }
 
           const index = notes.findIndex((note) => note.id === id);
           if (index !== -1) {
-            notes[index].status = "rejected";
+            notes[index].status = 'rejected';
             notes[index].rejection_reason = rejection_reason;
             notes[index].updated_at = new Date().toISOString();
             writeData({ notes, user });
 
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ message: "游记已拒绝" }));
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: '游记已拒绝' }));
           } else {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "游记未找到" }));
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '游记未找到' }));
           }
         } catch (error) {
-          console.error("处理拒绝游记时发生错误:", error);
+          console.error('处理拒绝游记时发生错误:', error);
           if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "服务器错误" }));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
           }
         }
       });
-    } else if (req.method === "DELETE") {
+    } else if (req.method === 'DELETE') {
       // 删除游记
-      let body = "";
-      req.on("data", (chunk) => {
+      let body = '';
+      req.on('data', (chunk) => {
         body += chunk.toString();
       });
 
-      req.on("end", () => {
+      req.on('end', () => {
         try {
           const { id } = JSON.parse(body);
 
           if (!id) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少游记ID参数" }));
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少游记ID参数' }));
             return;
           }
 
@@ -685,23 +843,23 @@ const server = http.createServer(async (req, res) => {
             notes[index].updated_at = new Date().toISOString(); // 更新修改时间
             writeData({ notes, user }); // 写入数据
 
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ message: "游记已删除" }));
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: '游记已删除' }));
           } else {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "游记未找到" }));
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '游记未找到' }));
           }
         } catch (error) {
-          console.error("处理删除游记时发生错误:", error);
+          console.error('处理删除游记时发生错误:', error);
           if (!res.headersSent) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "服务器错误" }));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务器错误' }));
           }
         }
       });
     } else {
-      res.writeHead(405, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "不支持的请求方法" }));
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
   } else if (pathname === '/api/register') {
     if (req.method === 'OPTIONS') {
@@ -711,19 +869,19 @@ const server = http.createServer(async (req, res) => {
       return; // 确保结束逻辑
     }
     // 用户注册
-    if (req.method === "POST") {
-      let body = "";
-      req.on("data", (chunk) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => {
         body += chunk.toString();
       });
 
-      req.on("end", () => {
+      req.on('end', () => {
         try {
           const { email, nickname, password } = JSON.parse(body);
 
           if (!email || !nickname || !password) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "缺少邮箱、昵称或密码" }));
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '缺少邮箱、昵称或密码' }));
             return;
           }
 
@@ -731,8 +889,8 @@ const server = http.createServer(async (req, res) => {
             (u) => u.user_info.nickname === nickname || u.email === email
           );
           if (existingUser) {
-            res.writeHead(409, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "邮箱或昵称已存在" }));
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '邮箱或昵称已存在' }));
             return;
           }
 
@@ -746,15 +904,15 @@ const server = http.createServer(async (req, res) => {
                 Math.random() * 1000
               )}`,
               nickname,
-              gender: "",
-              birthday: "",
-              city: "",
-              signature: "",
+              gender: '',
+              birthday: '',
+              city: '',
+              signature: '',
               follow: [],
               fans: [],
               notes: [],
             },
-            role: "user", // 默认角色为 user
+            role: 'user', // 默认角色为 user
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
@@ -762,7 +920,7 @@ const server = http.createServer(async (req, res) => {
           user.push(newUser);
           writeData({ notes, user });
 
-          res.writeHead(201, { "Content-Type": "application/json" });
+          res.writeHead(201, { 'Content-Type': 'application/json' });
           // res.end(JSON.stringify({ message: '注册成功', user_id: newUser.id }));
           res.end(
             JSON.stringify({
@@ -770,18 +928,18 @@ const server = http.createServer(async (req, res) => {
               data: {
                 user_id: newUser.id,
               },
-              message: "注册成功",
+              message: '注册成功',
               success: true,
             })
           );
         } catch (error) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "服务器错误" }));
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '服务器错误' }));
         }
       });
     } else {
-      res.writeHead(405, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "不支持的请求方法" }));
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
   } else if (pathname === '/api/login') {
     if (req.method === 'OPTIONS') {
