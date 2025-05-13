@@ -1,28 +1,88 @@
-const http = require('http');
-const url = require('url');
-const fs = require('fs');
-const path = require('path');
-const jwt = require('jsonwebtoken');
-require('dotenv').config();
-const SECRET_KEY = process.env.SECRET_KEY; // 替换为你的密钥
+import http from 'http';
+import url from 'url';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+import { MongoClient } from 'mongodb';
+
+dotenv.config();
+
+// 连接字符串
+const uri = 'mongodb://localhost:27017';
+const client = new MongoClient(uri);
+
+// 全局数据库变量
+let db;
+
+async function connect() {
+  try {
+    await client.connect();
+    console.log('Connected to MongoDB');
+    db = client.db('travel');
+
+    // 检查数据库连接
+    const collections = await db.listCollections().toArray();
+    console.log('数据库中的集合:', collections);
+
+    return db;
+  } catch (e) {
+    console.error('Connection error', e);
+    throw e;
+  }
+}
+
+// 初始化MongoDB连接并读取数据
+async function initialize() {
+  try {
+    await connect();
+    console.log('MongoDB connection completed');
+    const [notes, users] = await readData();
+    console.log('初始数据读取结果:', {
+      notesCount: notes.length,
+      usersCount: users.length,
+    });
+    return [notes, users];
+  } catch (err) {
+    console.error('初始化失败:', err);
+    return [[], []];
+  }
+}
+
+// 读取数据
+async function readData() {
+  try {
+    if (!db) {
+      console.error('数据库未连接');
+      return [[], []];
+    }
+    console.log('开始读取数据...');
+    const notes = await db.collection('notes').find({}).toArray();
+    console.log('读取到的笔记数量:', notes.length);
+
+    const users = await db.collection('users').find({}).toArray();
+    console.log('读取到的用户数量:', users.length);
+
+    return [notes, users];
+  } catch (error) {
+    console.error('读取数据失败:', error);
+    return [[], []];
+  }
+}
+
+const SECRET_KEY = process.env.SECRET_KEY;
 console.log('SECRET_KEY:', SECRET_KEY);
 const port = 3001;
 
-const dataFilePath = path.join(__dirname, 'data.json');
-
-// 读取数据
-function readData() {
-  const data = fs.readFileSync(dataFilePath, 'utf-8');
-  const parsedData = JSON.parse(data);
-  return [parsedData.notes || [], parsedData.user]; // 确保返回的是数组
-}
-// console.log('读取数据:', readData());
-const [notes, user] = readData();
-console.log('读取user:', user);
 // 写入数据
-function writeData(data) {
+async function writeData(data) {
   try {
-    fs.writeFileSync(dataFilePath, JSON.stringify(data, null, 2), 'utf-8');
+    if (data.notes) {
+      await db.collection('notes').deleteMany({});
+      await db.collection('notes').insertMany(data.notes);
+    }
+    if (data.user) {
+      await db.collection('users').deleteMany({});
+      await db.collection('users').insertMany(data.user);
+    }
   } catch (error) {
     console.error('写入数据失败:', error);
   }
@@ -31,8 +91,14 @@ function writeData(data) {
 // 设置CORS头信息
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*'); // 允许所有来源
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE'); // 允许的请求方法
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization'); // 允许的请求头
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET, POST, OPTIONS, PUT, PATCH, DELETE'
+  ); // 允许的请求方法
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-Requested-With,content-type,Authorization'
+  ); // 允许的请求头
   res.setHeader('Access-Control-Allow-Credentials', true); // 允许携带凭据
 }
 
@@ -62,7 +128,9 @@ function paginateByCursor(notes, cursor, limit) {
   const startIndex = cursor ? noteIndexMap.get(cursor) + 1 : 0;
   const paginatedNotes = notes.slice(startIndex, startIndex + limit);
   const nextCursor =
-    startIndex + limit < notes.length ? paginatedNotes[paginatedNotes.length - 1]?.id : null;
+    startIndex + limit < notes.length
+      ? paginatedNotes[paginatedNotes.length - 1]?.id
+      : null;
 
   return {
     data: paginatedNotes,
@@ -73,7 +141,7 @@ function paginateByCursor(notes, cursor, limit) {
   };
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
   const query = parsedUrl.query;
@@ -82,110 +150,201 @@ const server = http.createServer((req, res) => {
   setCorsHeaders(res);
 
   if (pathname === '/api/notes') {
-    let filteredNotes = filterNotesByStatus(notes, query.status);
+    try {
+      let query = {};
+      if (parsedUrl.query.status) {
+        query.status = parsedUrl.query.status;
+      }
 
-    // 支持两种分页方式
-    let result;
-    if (query.type === 'cursor') {
-      // 游标分页
-      const cursor = query.cursor || null;
-      const limit = parseInt(query.limit) || 5;
-      result = paginateByCursor(filteredNotes, cursor, limit);
-    } else if (query.type === 'page') {
-      // 页码分页
-      const page = parseInt(query.page) || 1;
-      const limit = parseInt(query.limit) || 5;
-      result = paginateByPage(filteredNotes, page, limit);
-    }
+      let filteredNotes = await db.collection('notes').find(query).toArray();
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(result));
-    return; // 确保结束逻辑
-  } else if (pathname === '/api/user') {
-    const userId = query.id;
-    if (!userId) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '缺少用户ID参数' }));
-      return;
-    }
+      // 支持两种分页方式
+      let result;
+      if (parsedUrl.query.type === 'cursor') {
+        // 游标分页
+        const cursor = parsedUrl.query.cursor || null;
+        const limit = parseInt(parsedUrl.query.limit) || 5;
+        const noteIndexMap = new Map(
+          filteredNotes.map((note, index) => [note.id, index])
+        );
+        const startIndex = cursor ? noteIndexMap.get(cursor) + 1 : 0;
+        const paginatedNotes = filteredNotes.slice(
+          startIndex,
+          startIndex + limit
+        );
+        const nextCursor =
+          startIndex + limit < filteredNotes.length
+            ? paginatedNotes[paginatedNotes.length - 1]?.id
+            : null;
 
-    const foundUser = user.find((u) => u.id === userId);
-    if (foundUser) {
-      const userDetails = {
-        ...foundUser,
-        notes: notes.filter((note) => note.user_id === userId), // 返回用户的游记
-      };
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(userDetails));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '用户未找到' }));
-    }
-  } else if (pathname === '/api/notedetail') {
-    const noteId = query.id;
-    if (!noteId) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '缺少推文ID参数' }));
-      return;
-    }
-
-    const foundNote = notes.find((note) => note.id === noteId && !note.isDeleted);
-    if (foundNote) {
-      // 添加评论的用户信息
-      const commentsWithUserInfo = foundNote.comments.map((comment) => {
-        const commentUser = user.find((u) => u.id === comment.user_id);
-        return {
-          ...comment,
-          user_info: commentUser ? commentUser.user_info : null,
+        result = {
+          data: paginatedNotes,
+          nextCursor,
+          hasMore: nextCursor !== null,
+          total: filteredNotes.length,
+          currentPageSize: paginatedNotes.length,
         };
-      });
+      } else {
+        // 页码分页
+        const page = parseInt(parsedUrl.query.page) || 1;
+        const limit = parseInt(parsedUrl.query.limit) || 5;
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+        const paginatedNotes = filteredNotes.slice(startIndex, endIndex);
 
-      const noteDetails = {
-        ...foundNote,
-        comments: commentsWithUserInfo,
-      };
+        result = {
+          data: paginatedNotes,
+          currentPage: page,
+          totalPages: Math.ceil(filteredNotes.length / limit),
+          totalItems: filteredNotes.length,
+          itemsPerPage: limit,
+        };
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(noteDetails));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '推文未找到' }));
+      res.end(JSON.stringify(result));
+    } catch (error) {
+      console.error('获取笔记列表失败:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '服务器错误' }));
     }
+    return;
+  } else if (pathname === '/api/user') {
+    try {
+      const userId = parsedUrl.query.id;
+      if (!userId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '缺少用户ID参数' }));
+        return;
+      }
+
+      const foundUser = await db.collection('users').findOne({ id: userId });
+      if (foundUser) {
+        const userNotes = await db
+          .collection('notes')
+          .find({ user_id: userId })
+          .toArray();
+        const userDetails = {
+          ...foundUser,
+          notes: userNotes,
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(userDetails));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '用户未找到' }));
+      }
+    } catch (error) {
+      console.error('获取用户信息失败:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '服务器错误' }));
+    }
+    return;
+  } else if (pathname === '/api/notedetail') {
+    try {
+      const noteId = parsedUrl.query.id;
+      if (!noteId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '缺少推文ID参数' }));
+        return;
+      }
+
+      const foundNote = await db
+        .collection('notes')
+        .findOne({ id: noteId, is_deleted: { $ne: true } });
+      if (foundNote) {
+        // 获取评论的用户信息
+        const commentsWithUserInfo = await Promise.all(
+          foundNote.comments.map(async (comment) => {
+            const commentUser = await db
+              .collection('users')
+              .findOne({ id: comment.user_id });
+            return {
+              ...comment,
+              user_info: commentUser ? commentUser.user_info : null,
+            };
+          })
+        );
+
+        const noteDetails = {
+          ...foundNote,
+          comments: commentsWithUserInfo,
+        };
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(noteDetails));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '推文未找到' }));
+      }
+    } catch (error) {
+      console.error('获取笔记详情失败:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '服务器错误' }));
+    }
+    return;
   } else if (pathname === '/api/search') {
-    const keyword = query.keyword?.toLowerCase();
-    if (!keyword) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '缺少关键词参数' }));
-      return;
+    try {
+      const keyword = parsedUrl.query.keyword?.toLowerCase();
+      if (!keyword) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '缺少关键词参数' }));
+        return;
+      }
+
+      // 根据用户昵称查找
+      const foundUsers = await db
+        .collection('users')
+        .find({
+          'user_info.nickname': { $regex: keyword, $options: 'i' },
+        })
+        .toArray();
+
+      let filteredNotes = [];
+      if (foundUsers.length > 0) {
+        const userIds = foundUsers.map((user) => user.id);
+        filteredNotes = await db
+          .collection('notes')
+          .find({
+            user_id: { $in: userIds },
+            is_deleted: { $ne: true },
+          })
+          .toArray();
+      }
+
+      // 根据游记标题查找
+      const titleFilteredNotes = await db
+        .collection('notes')
+        .find({
+          title: { $regex: keyword, $options: 'i' },
+          is_deleted: { $ne: true },
+        })
+        .toArray();
+
+      // 合并结果，去重
+      const uniqueNotes = [
+        ...new Map(
+          [...filteredNotes, ...titleFilteredNotes].map((note) => [
+            note.id,
+            note,
+          ])
+        ).values(),
+      ];
+
+      if (uniqueNotes.length === 0) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '未找到匹配的结果' }));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(uniqueNotes));
+    } catch (error) {
+      console.error('搜索失败:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '服务器错误' }));
     }
-
-    // 根据用户昵称查找
-    const foundUser = user.find((u) => u['user_info'].nickname.toLowerCase().includes(keyword));
-    let filteredNotes = [];
-
-    if (foundUser) {
-      const userId = foundUser.id;
-      filteredNotes = notes.filter((note) => note.user_id === userId && !note.isDeleted);
-    }
-
-    // 根据游记标题查找
-    const titleFilteredNotes = notes.filter(
-      (note) => note.title.toLowerCase().includes(keyword) && !note.isDeleted
-    );
-
-    // 合并结果，去重
-    const uniqueNotes = [
-      ...new Map([...filteredNotes, ...titleFilteredNotes].map((note) => [note.id, note])).values(),
-    ];
-
-    if (uniqueNotes.length === 0) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '未找到匹配的结果' }));
-      return;
-    }
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(uniqueNotes));
+    return;
   } else if (pathname === '/api/comment') {
     // 处理预检请求
     if (req.method === 'OPTIONS') {
@@ -195,14 +354,14 @@ const server = http.createServer((req, res) => {
         'Access-Control-Allow-Headers': 'Content-Type',
       });
       res.end();
-      return; // 确保结束逻辑
+      return;
     }
 
     // 发布评论
     if (req.method !== 'POST') {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '仅支持POST方法' }));
-      return; // 确保结束逻辑
+      return;
     }
 
     let body = '';
@@ -210,7 +369,7 @@ const server = http.createServer((req, res) => {
       body += chunk.toString();
     });
 
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const { noteId, userId, comment } = JSON.parse(body);
 
@@ -220,7 +379,9 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        const foundNote = notes.find((note) => note.id === noteId && !note.isDeleted);
+        const foundNote = await db
+          .collection('notes')
+          .findOne({ id: noteId, is_deleted: { $ne: true } });
         if (!foundNote) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: '推文未找到' }));
@@ -234,14 +395,14 @@ const server = http.createServer((req, res) => {
           created_at: new Date().toISOString(),
         };
 
-        foundNote.comments = foundNote.comments || [];
-        foundNote.comments.push(newComment);
-
-        writeData({ notes, user });
+        await db
+          .collection('notes')
+          .updateOne({ id: noteId }, { $push: { comments: newComment } });
 
         res.writeHead(201, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(newComment));
       } catch (error) {
+        console.error('发布评论失败:', error);
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: '服务器错误' }));
@@ -257,7 +418,7 @@ const server = http.createServer((req, res) => {
         'Access-Control-Allow-Headers': 'Content-Type',
       });
       res.end();
-      return; // 确保结束逻辑
+      return;
     }
 
     if (req.method === 'POST') {
@@ -267,11 +428,9 @@ const server = http.createServer((req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { userId, followId } = JSON.parse(body);
-
-          console.log('收到的请求参数:', { userId, followId });
 
           if (!userId || !followId) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -279,11 +438,12 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          const foundUser = user.find((u) => u.id === userId);
-          const followUser = user.find((u) => u.id === followId);
-
-          console.log('找到的用户:', foundUser);
-          console.log('找到的关注用户:', followUser);
+          const foundUser = await db
+            .collection('users')
+            .findOne({ id: userId });
+          const followUser = await db
+            .collection('users')
+            .findOne({ id: followId });
 
           if (!foundUser || !followUser) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -291,19 +451,26 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          if (!foundUser.user_info.follow.includes(followId)) {
-            foundUser.user_info.follow.push(followId);
-          }
+          // 更新关注者的关注列表
+          await db
+            .collection('users')
+            .updateOne(
+              { id: userId },
+              { $addToSet: { 'user_info.follow': followId } }
+            );
 
-          if (!followUser.user_info.fans.includes(userId)) {
-            followUser.user_info.fans.push(userId);
-          }
-
-          writeData({ notes, user });
+          // 更新被关注者的粉丝列表
+          await db
+            .collection('users')
+            .updateOne(
+              { id: followId },
+              { $addToSet: { 'user_info.fans': userId } }
+            );
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ message: '关注成功' }));
         } catch (error) {
+          console.error('关注用户失败:', error);
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: '服务器错误' }));
@@ -317,11 +484,9 @@ const server = http.createServer((req, res) => {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const { userId, followId } = JSON.parse(body);
-
-          console.log('收到的请求参数:', { userId, followId });
 
           if (!userId || !followId) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -329,11 +494,12 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          const foundUser = user.find((u) => u.id === userId);
-          const followUser = user.find((u) => u.id === followId);
-
-          console.log('找到的用户:', foundUser);
-          console.log('找到的关注用户:', followUser);
+          const foundUser = await db
+            .collection('users')
+            .findOne({ id: userId });
+          const followUser = await db
+            .collection('users')
+            .findOne({ id: followId });
 
           if (!foundUser || !followUser) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -341,14 +507,26 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          foundUser.user_info.follow = foundUser.user_info.follow.filter((id) => id !== followId);
-          followUser.user_info.fans = followUser.user_info.fans.filter((id) => id !== userId);
+          // 更新关注者的关注列表
+          await db
+            .collection('users')
+            .updateOne(
+              { id: userId },
+              { $pull: { 'user_info.follow': followId } }
+            );
 
-          writeData({ notes, user });
+          // 更新被关注者的粉丝列表
+          await db
+            .collection('users')
+            .updateOne(
+              { id: followId },
+              { $pull: { 'user_info.fans': userId } }
+            );
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ message: '取消关注成功' }));
         } catch (error) {
+          console.error('取消关注失败:', error);
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: '服务器错误' }));
@@ -357,28 +535,32 @@ const server = http.createServer((req, res) => {
       });
     } else if (req.method === 'GET') {
       // 查询用户是否关注
-      const { userId, followId } = query;
+      try {
+        const { userId, followId } = parsedUrl.query;
 
-      console.log('查询关注状态的请求参数:', { userId, followId });
+        if (!userId || !followId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '缺少必要参数' }));
+          return;
+        }
 
-      if (!userId || !followId) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '缺少必要参数' }));
-        return;
+        const foundUser = await db.collection('users').findOne({ id: userId });
+
+        if (!foundUser) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '用户未找到' }));
+          return;
+        }
+
+        const isFollowing = foundUser.user_info.follow.includes(followId);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ isFollowing }));
+      } catch (error) {
+        console.error('查询关注状态失败:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '服务器错误' }));
       }
-
-      const foundUser = user.find((u) => u.id === userId);
-
-      if (!foundUser) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: '用户未找到' }));
-        return;
-      }
-
-      const isFollowing = foundUser.user_info.follow.includes(followId);
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ isFollowing }));
     } else {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '不支持的请求方法' }));
@@ -398,7 +580,9 @@ const server = http.createServer((req, res) => {
       let filteredTravelogues = notes.filter((note) => !note.is_deleted);
 
       if (status) {
-        filteredTravelogues = filteredTravelogues.filter((note) => note.status === status);
+        filteredTravelogues = filteredTravelogues.filter(
+          (note) => note.status === status
+        );
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -521,11 +705,11 @@ const server = http.createServer((req, res) => {
     }
   } else if (pathname === '/api/register') {
     if (req.method === 'OPTIONS') {
-  setCorsHeaders(res);
-  res.writeHead(204); // No Content
-  res.end();
-  return; // 确保结束逻辑
-}
+      setCorsHeaders(res);
+      res.writeHead(204); // No Content
+      res.end();
+      return; // 确保结束逻辑
+    }
     // 用户注册
     if (req.method === 'POST') {
       let body = '';
@@ -556,9 +740,11 @@ const server = http.createServer((req, res) => {
             id: `user_${Date.now()}`,
             email,
             password, // 注意：实际项目中应对密码进行加密存储
-            name:'',
+            name: '',
             user_info: {
-              avatar: `https://picsum.photos/360/460?random=${Math.floor(Math.random() * 1000)}`,
+              avatar: `https://picsum.photos/360/460?random=${Math.floor(
+                Math.random() * 1000
+              )}`,
               nickname,
               gender: '',
               birthday: '',
@@ -578,14 +764,16 @@ const server = http.createServer((req, res) => {
 
           res.writeHead(201, { 'Content-Type': 'application/json' });
           // res.end(JSON.stringify({ message: '注册成功', user_id: newUser.id }));
-          res.end( JSON.stringify({
+          res.end(
+            JSON.stringify({
               code: 200,
               data: {
-                user_id: newUser.id
+                user_id: newUser.id,
               },
               message: '注册成功',
               success: true,
-            }))
+            })
+          );
         } catch (error) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: '服务器错误' }));
@@ -595,89 +783,124 @@ const server = http.createServer((req, res) => {
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '不支持的请求方法' }));
     }
-  }  else if (pathname === '/api/login') {
+  } else if (pathname === '/api/login') {
     if (req.method === 'OPTIONS') {
-  setCorsHeaders(res);
-  res.writeHead(204); // No Content
-  res.end();
-  return; // 确保结束逻辑
-}
-  // 用户登录
-  if (req.method === 'POST') {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk.toString();
-    });
+      setCorsHeaders(res);
+      res.writeHead(204); // No Content
+      res.end();
+      return; // 确保结束逻辑
+    }
+    // 用户登录
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk.toString();
+      });
 
-    req.on('end', () => {
-      try {
-        const { nickname, password } = JSON.parse(body);
-
-        if (!nickname || !password) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ code: 400, message: '缺少昵称或密码', success: false }));
-          return;
-        }
-
-        const foundUser = user.find(
-          (u) => u.user_info.nickname === nickname && u.password === password
-        );
-
-        if (!foundUser) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ code: 401, message: '昵称或密码错误', success: false }));
-          return;
-        }
-
-        // 生成 JWT Token
+      req.on('end', () => {
         try {
-          const accessToken = jwt.sign(
-            { userId: foundUser.id, role: foundUser.role },
-            SECRET_KEY,
-            { expiresIn: '7d' } // Access Token 有效期 7 天
+          const { nickname, password } = JSON.parse(body);
+
+          if (!nickname || !password) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 400,
+                message: '缺少昵称或密码',
+                success: false,
+              })
+            );
+            return;
+          }
+
+          const foundUser = user.find(
+            (u) => u.user_info.nickname === nickname && u.password === password
           );
 
-          const refreshToken = jwt.sign(
-            { userId: foundUser.id },
-            SECRET_KEY,
-            { expiresIn: '30d' } // Refresh Token 有效期 30 天
-          );
+          if (!foundUser) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 401,
+                message: '昵称或密码错误',
+                success: false,
+              })
+            );
+            return;
+          }
 
-          // 返回响应
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              code: 200,
-              data: {
-                user_id: foundUser.id,
-                role: foundUser.role,
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              },
-              message: '操作成功',
-              success: true,
-            })
-          );
-        } catch (err) {
-          console.error('生成 Token 时出错:', err);
+          // 生成 JWT Token
+          try {
+            const accessToken = jwt.sign(
+              { userId: foundUser.id, role: foundUser.role },
+              SECRET_KEY,
+              { expiresIn: '7d' } // Access Token 有效期 7 天
+            );
+
+            const refreshToken = jwt.sign(
+              { userId: foundUser.id },
+              SECRET_KEY,
+              { expiresIn: '30d' } // Refresh Token 有效期 30 天
+            );
+
+            // 返回响应
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 200,
+                data: {
+                  user_id: foundUser.id,
+                  role: foundUser.role,
+                  access_token: accessToken,
+                  refresh_token: refreshToken,
+                },
+                message: '操作成功',
+                success: true,
+              })
+            );
+          } catch (err) {
+            console.error('生成 Token 时出错:', err);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 500,
+                message: '生成 Token 时出错',
+                success: false,
+              })
+            );
+          }
+        } catch (error) {
+          console.error('解析请求体时出错:', error);
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ code: 500, message: '生成 Token 时出错', success: false }));
+          res.end(
+            JSON.stringify({ code: 500, message: '服务器错误', success: false })
+          );
         }
-      } catch (error) {
-        console.error('解析请求体时出错:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ code: 500, message: '服务器错误', success: false }));
-      }
-    });
+      });
+    } else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 405,
+          message: '不支持的请求方法',
+          success: false,
+        })
+      );
+    }
   } else {
-    res.writeHead(405, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ code: 405, message: '不支持的请求方法', success: false }));
-  }
-} else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   }
 });
-server.listen(port, () => {
-  console.log(`服务器正在运行在 http://localhost:${port}`);
-});
+
+// 初始化并启动服务器
+initialize()
+  .then(([notes, users]) => {
+    console.log('系统初始化完成');
+    server.listen(port, () => {
+      console.log(`服务器正在运行在 http://localhost:${port}`);
+    });
+  })
+  .catch((err) => {
+    console.error('服务器启动失败:', err);
+  });
