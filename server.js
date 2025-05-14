@@ -10,7 +10,8 @@ import fs from 'fs';
 dotenv.config();
 
 // 连接字符串
-const uri = 'mongodb+srv://michieda4747:jCGqch1gokJO7yae@travel.28hubvd.mongodb.net/';
+const uri =
+  'mongodb+srv://michieda4747:jCGqch1gokJO7yae@travel.28hubvd.mongodb.net/';
 const client = new MongoClient(uri);
 
 // 全局数据库变量
@@ -140,22 +141,6 @@ const SECRET_KEY = process.env.SECRET_KEY;
 console.log('SECRET_KEY:', SECRET_KEY);
 const port = 3001;
 
-// 写入数据
-async function writeData(data) {
-  try {
-    if (data.notes) {
-      await db.collection('notes').deleteMany({});
-      await db.collection('notes').insertMany(data.notes);
-    }
-    if (data.user) {
-      await db.collection('users').deleteMany({});
-      await db.collection('users').insertMany(data.user);
-    }
-  } catch (error) {
-    console.error('写入数据失败:', error);
-  }
-}
-
 // 设置CORS头信息
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*'); // 允许所有来源
@@ -192,185 +177,6 @@ const server = http.createServer(async (req, res) => {
 
   console.log('处理路径:', pathname);
   setCorsHeaders(res);
-
-  // 处理文件上传
-  if (pathname === '/api/upload') {
-    if (req.method === 'OPTIONS') {
-      setCorsHeaders(res);
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    if (req.method !== 'POST') {
-      res.writeHead(405, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '只支持 POST 请求' }));
-      return;
-    }
-
-    // 验证 token
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          code: 401,
-          message: '未提供认证token',
-          success: false,
-        })
-      );
-      return;
-    }
-
-    try {
-      const token = authHeader.split(' ')[1]; // Bearer token
-      const decoded = jwt.verify(token, SECRET_KEY);
-
-      // 使用 multer 处理文件上传
-      upload.array('files', 10)(req, res, async (err) => {
-        if (err) {
-          console.error('文件上传错误:', err);
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              code: 400,
-              message: err.message,
-              success: false,
-            })
-          );
-          return;
-        }
-
-        try {
-          const files = req.files;
-          if (!files || files.length === 0) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(
-              JSON.stringify({
-                code: 400,
-                message: '没有上传文件',
-                success: false,
-              })
-            );
-            return;
-          }
-
-          // 检查视频文件数量
-          const videoCount = files.filter((file) =>
-            file.mimetype.startsWith('video/')
-          ).length;
-          if (videoCount > 1) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(
-              JSON.stringify({
-                code: 400,
-                message: '只能上传一个视频文件',
-                success: false,
-              })
-            );
-            return;
-          }
-
-          // 处理上传的文件
-          const uploadedFiles = await Promise.all(
-            files.map(async (file) => {
-              // 构建文件信息
-              const fileInfo = {
-                filename: file.filename,
-                originalname: file.originalname,
-                mimetype: file.mimetype,
-                size: file.size,
-                path: file.path.replace(process.cwd(), '').replace(/\\/g, '/'),
-                type: file.mimetype.startsWith('image/') ? 'image' : 'video',
-                user_id: decoded.userId,
-                url: `http://localhost:${port}${file.path
-                  .replace(process.cwd(), '')
-                  .replace(/\\/g, '/')}`,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              };
-
-              // 存储到数据库
-              try {
-                const result = await db.collection('files').insertOne(fileInfo);
-                return {
-                  ...fileInfo,
-                  _id: result.insertedId,
-                };
-              } catch (error) {
-                console.error('存储文件信息失败:', error);
-                throw error;
-              }
-            })
-          );
-
-          // 返回上传结果
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              code: 200,
-              message: '文件上传成功',
-              success: true,
-              data: {
-                files: uploadedFiles,
-              },
-            })
-          );
-        } catch (error) {
-          console.error('处理上传文件时出错:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              code: 500,
-              message: '服务器错误',
-              success: false,
-            })
-          );
-        }
-      });
-    } catch (error) {
-      console.error('Token验证失败:', error);
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          code: 401,
-          message: '无效的token',
-          success: false,
-        })
-      );
-    }
-    return;
-  }
-
-  // 添加静态文件服务
-  if (pathname.startsWith('/uploads/')) {
-    const filePath = path.join(process.cwd(), pathname);
-
-    // 检查文件是否存在
-    if (fs.existsSync(filePath)) {
-      const stat = fs.statSync(filePath);
-
-      // 设置响应头
-      res.writeHead(200, {
-        'Content-Type': getContentType(filePath),
-        'Content-Length': stat.size,
-      });
-
-      // 创建文件读取流
-      const fileStream = fs.createReadStream(filePath);
-      fileStream.pipe(res);
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          code: 404,
-          message: '文件不存在',
-          success: false,
-        })
-      );
-    }
-    return;
-  }
 
   if (pathname === '/api/notes') {
     try {
@@ -1133,7 +939,7 @@ const server = http.createServer(async (req, res) => {
       setCorsHeaders(res);
       res.writeHead(204); // No Content
       res.end();
-      return; // 确保结束逻辑
+      return;
     }
     // 用户注册
     if (req.method === 'POST') {
@@ -1320,6 +1126,146 @@ const server = http.createServer(async (req, res) => {
         })
       );
     }
+  } else if (pathname === '/api/notes/publish') {
+    if (req.method === 'OPTIONS') {
+      setCorsHeaders(res);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 405,
+          message: '只支持 POST 请求',
+          success: false,
+        })
+      );
+      return;
+    }
+
+    // 验证 token
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 401,
+          message: '未提供认证token',
+          success: false,
+        })
+      );
+      return;
+    }
+
+    try {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, SECRET_KEY);
+
+      // 使用 multer 处理文件上传
+      upload.array('files', 10)(req, res, async (err) => {
+        if (err) {
+          console.error('文件上传错误:', err);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 400,
+              message: err.message,
+              success: false,
+            })
+          );
+          return;
+        }
+
+        try {
+          const { title, content, location } = req.body;
+
+          if (!title || !content) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                code: 400,
+                message: '标题和内容不能为空',
+                success: false,
+              })
+            );
+            return;
+          }
+
+          // 处理上传的文件
+          const files = req.files || [];
+          const images = [];
+          let video = '';
+
+          files.forEach((file) => {
+            const fileUrl = `http://localhost:${port}${file.path
+              .replace(process.cwd(), '')
+              .replace(/\\/g, '/')}`;
+
+            if (file.mimetype.startsWith('image/')) {
+              images.push(fileUrl);
+            } else if (file.mimetype.startsWith('video/')) {
+              video = fileUrl;
+            }
+          });
+
+          // 创建游记文档
+          const newNote = {
+            id: `post${Date.now()}`,
+            user_id: decoded.userId,
+            title,
+            content,
+            location: location || '',
+            image: images,
+            video: video,
+            status: 'pending', // 待审核状态
+            is_deleted: false,
+            comments: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          // 保存到数据库
+          const result = await db.collection('notes').insertOne(newNote);
+
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 201,
+              data: {
+                note_id: newNote.id,
+                ...newNote,
+              },
+              message: '游记发布成功，等待审核',
+              success: true,
+            })
+          );
+        } catch (error) {
+          console.error('发布游记失败:', error);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              code: 500,
+              message: '服务器错误',
+              success: false,
+            })
+          );
+        }
+      });
+    } catch (error) {
+      console.error('Token验证失败:', error);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          code: 401,
+          message: '无效的token',
+          success: false,
+        })
+      );
+    }
+    return;
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
