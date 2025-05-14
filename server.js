@@ -10,7 +10,7 @@ import fs from 'fs';
 dotenv.config();
 
 // 连接字符串
-const uri = 'mongodb://localhost:27017';
+const uri = 'mongodb+srv://michieda4747:jCGqch1gokJO7yae@travel.28hubvd.mongodb.net/';
 const client = new MongoClient(uri);
 
 // 全局数据库变量
