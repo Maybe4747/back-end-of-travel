@@ -1272,21 +1272,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// 获取文件类型
-function getContentType(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const contentTypes = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-    '.ogg': 'video/ogg',
-  };
-  return contentTypes[ext] || 'application/octet-stream';
-}
 
 // 初始化并启动服务器
 initialize()
