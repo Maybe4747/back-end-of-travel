@@ -59,11 +59,9 @@ const fileFilter = (req, file, cb) => {
     file.mimetype.startsWith('video/') &&
     allowedVideoTypes.includes(file.mimetype)
   ) {
-    // 检查是否已经上传了视频文件
-    const videoCount = req.files
-      ? req.files.filter((f) => f.mimetype.startsWith('video/')).length
-      : 0;
-    if (videoCount >= 1) {
+    // 检查请求中是否已经包含视频文件
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('video/')) {
       cb(new Error('只能上传一个视频文件'), false);
       return;
     }
@@ -73,11 +71,12 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// 创建一个统一的上传处理器
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 限制文件大小为 50MB
+    fileSize: 500 * 1024 * 1024, // 限制文件大小为 500MB
     files: 10, // 最多10个文件
   },
 });
@@ -1164,7 +1163,21 @@ const server = http.createServer(async (req, res) => {
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, SECRET_KEY);
 
-      // 使用 multer 处理文件上传
+      // 检查数据库连接
+      if (!db) {
+        console.error('数据库未连接');
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            code: 500,
+            message: '数据库连接失败',
+            success: false,
+          })
+        );
+        return;
+      }
+
+      // 使用统一的上传处理器
       upload.array('files', 10)(req, res, async (err) => {
         if (err) {
           console.error('文件上传错误:', err);
@@ -1196,6 +1209,7 @@ const server = http.createServer(async (req, res) => {
 
           // 处理上传的文件
           const files = req.files || [];
+          console.log('上传的文件数量:', files.length);
           const images = [];
           let video = '';
 
@@ -1228,7 +1242,7 @@ const server = http.createServer(async (req, res) => {
           };
 
           // 保存到数据库
-          const result = await db.collection('notes').insertOne(newNote);
+          await db.collection('notes').insertOne(newNote);
 
           res.writeHead(201, { 'Content-Type': 'application/json' });
           res.end(
@@ -1266,21 +1280,69 @@ const server = http.createServer(async (req, res) => {
       );
     }
     return;
+  } else if (pathname.startsWith('/uploads/')) {
+    // 处理静态文件请求
+    const filePath = path.join(process.cwd(), pathname);
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.isFile()) {
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType =
+          {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.ogg': 'video/ogg',
+          }[ext] || 'application/octet-stream';
+
+        // 设置缓存控制
+        res.setHeader('Cache-Control', 'public, max-age=31536000'); // 缓存一年
+        res.setHeader('Content-Type', contentType);
+
+        // 使用流式传输
+        const stream = fs.createReadStream(filePath);
+        stream.on('error', (error) => {
+          console.error('文件流错误:', error);
+          if (!res.headersSent) {
+            res.writeHead(500);
+            res.end('文件读取错误');
+          }
+        });
+
+        stream.pipe(res);
+        return;
+      }
+    } catch (error) {
+      console.error('文件访问错误:', error);
+      res.writeHead(404);
+      res.end('File not found');
+      return;
+    }
   } else {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
   }
 });
 
-
 // 初始化并启动服务器
-initialize()
-  .then(([notes, users]) => {
-    console.log('系统初始化完成');
+async function startServer() {
+  try {
+    // 连接数据库
+    await connect();
+    console.log('数据库连接成功');
+
+    // 启动服务器
     server.listen(port, () => {
       console.log(`服务器正在运行在 http://localhost:${port}`);
     });
-  })
-  .catch((err) => {
-    console.error('服务器启动失败:', err);
-  });
+  } catch (error) {
+    console.error('服务器启动失败:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
